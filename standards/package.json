@@ -1,0 +1,15 @@
+{
+  "name": "ourapps-standards-tools",
+  "private": true,
+  "type": "module",
+  "description": "Validators for the standard documents components and recipes use",
+  "dependencies": {
+    "@apidevtools/swagger-parser": "^13.1.0",
+    "@asyncapi/parser": "^3.6.6",
+    "@bufbuild/cel": "^0.6.2",
+    "@open-rpc/schema-utils-js": "^2.2.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "typescript": "^5.9.3"
+  }
+}
