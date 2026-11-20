@@ -23,7 +23,7 @@ sys.dont_write_bytecode = True
 
 TOOLS_DIR = Path(__file__).resolve().parent
 ROOT = TOOLS_DIR.parent
-AEPM = ROOT / "aepm"
+AEPM = Path(os.environ.get("AEPM_CHECKOUT", ROOT / "aepm"))
 STANDARD = ROOT / ".opencode" / "knowledge" / "component-standard.md"
 GENERATOR = AEPM / "aepm" / "diagram" / "generate.py"
 TEMP_BASE = Path("/var/folders/yk/8tzc9b_1713dlhdp5vzkgg100000gn/T/opencode")
@@ -247,10 +247,10 @@ def check_standard_fields(directory, manifest, report):
         report.warn(f"kind is {manifest['kind']!r}, expected 'component'")
     if identity["sourceRevision"] != SOURCE_REVISION:
         report.warn("identity.sourceRevision differs from the frozen McInPoker revision")
-    if manifest["upgrade"] != {"policy": "patch", "migration": "files-only"}:
-        report.warn(f"upgrade is {manifest['upgrade']}, standard says policy patch, migration files-only")
-    if manifest["format"] != 1:
-        report.warn(f"manifest format {manifest['format']} (standard component format is 1)")
+    if manifest["upgrade"] != {"migration": "files-only"}:
+        report.warn(f"upgrade is {manifest['upgrade']}, standard says migration files-only")
+    if manifest["format"] != 3:
+        report.warn(f"manifest format {manifest['format']} (the package manifest format is 3)")
     for item in manifest["collect"]:
         if item.get("secret") and "default" in item:
             report.error(f"collect {item['id']!r}: secrets never have defaults")

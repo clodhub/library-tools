@@ -22,7 +22,7 @@ class PublicationFactsTests(unittest.TestCase):
         cls.temp.cleanup()
 
     def test_publication_uses_archive_identity_and_foundations(self):
-        entry, version = publisher.component_entry("theme", self.directory, self.ref, "theme.tar", self.store)
+        entry, version, _ = publisher.component_entry("theme", self.directory, self.ref, "theme.tar", self.store)
         manifest, _ = publisher.verified_package(self.ref, self.store)
         self.assertEqual(entry["name"], manifest["identity"]["name"])
         self.assertEqual(version, manifest["identity"]["version"])

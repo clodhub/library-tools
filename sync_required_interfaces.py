@@ -10,6 +10,7 @@ With --check nothing is written and differences give exit status 1.
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -50,7 +51,7 @@ def class_conflicts(components, only=None):
     identities = {}
     problems = []
     import sys
-    sys.path.insert(0, str(ROOT / "aepm"))
+    sys.path.insert(0, os.environ.get("AEPM_CHECKOUT", str(ROOT / "aepm")))
     from aepm.model import canonical
     for name, manifest in manifests(components).items():
         for entry in manifest["classes"]:

@@ -1,5 +1,6 @@
 """Component authoring preserves the licence documents supplied by the author."""
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -26,9 +27,10 @@ class LicencePreservationTests(unittest.TestCase):
             "suites": [{"id": "test", "argv": ["node", "--test", "tests/example.mjs"]}],
             "licence": "MIT", "licenceFile": "LICENCE", "noticeFile": "NOTICE",
         }
-        example = json.loads((Path(__file__).resolve().parents[2] / "aepm/examples/counter/component.json").read_text())
+        aepm = Path(os.environ.get("AEPM_CHECKOUT", Path(__file__).resolve().parents[2] / "aepm"))
+        example = json.loads((aepm / "examples/counter/component.json").read_text())
         self.spec.update(supportedPlatforms=example["platforms"], templates=[])
-        for field in ("toolchains", "classes", "implements", "upstream", "compatibility", "maintenance"):
+        for field in ("toolchains", "classes", "implements", "upstream", "compatibility", "maintenance", "release", "images", "vulnerabilityWaivers"):
             self.spec[field] = example[field]
 
     def load(self):

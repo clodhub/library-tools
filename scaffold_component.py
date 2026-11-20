@@ -17,7 +17,7 @@ sys.dont_write_bytecode = True
 
 TOOLS_DIR = Path(__file__).resolve().parent
 ROOT = TOOLS_DIR.parent
-AEPM = ROOT / "aepm"
+AEPM = Path(os.environ.get("AEPM_CHECKOUT", ROOT / "aepm"))
 STANDARD = ROOT / ".opencode" / "knowledge" / "component-standard.md"
 GENERATOR = AEPM / "aepm" / "diagram" / "generate.py"
 DOT_DIR = "/opt/homebrew/bin"
@@ -26,7 +26,8 @@ PLATFORMS = ("server", "web", "apple", "android", "desktop")
 SPEC_KEYS = {"name", "version", "title", "description", "facilities", "provides", "requires", "collect", "dependencies",
              "suites", "tools", "platforms", "text", "agentInstructions", "developerInstructions", "suitability",
                "migration", "keepsData", "infrastructure", "modules", "licence", "licenceFile", "noticeFile",
-               "supportedPlatforms", "toolchains", "templates", "classes", "implements", "upstream", "compatibility", "maintenance"}
+               "supportedPlatforms", "toolchains", "templates", "classes", "implements", "upstream", "compatibility", "maintenance",
+               "release", "images", "vulnerabilityWaivers"}
 TEXT_KEYS = ("purpose", "userInputs", "integration", "infrastructure", "verification", "scenarios", "updates")
 SKIPPED_ANYWHERE = {".DS_Store", "__pycache__"}
 UNPACKAGED_TOP = {".git", ".gitignore", ".gitattributes", ".opencode", "authoring", "releases", "component.json", "AGENTS.md"}
@@ -499,7 +500,7 @@ def build_manifest(spec, files, suites):
             ports[key].append(entry)
     infra = spec["infrastructure"]
     manifest = {
-        "format": 1, "kind": "component",
+        "format": 3, "kind": "component",
         "identity": {"name": "ourapps-ae/" + name, "version": spec["version"], "sourceRevision": SOURCE_REVISION,
                       "sourceTreeDigest": "0" * 64, "licence": spec["licence"]},
         "facilities": spec["facilities"],
@@ -516,11 +517,11 @@ def build_manifest(spec, files, suites):
         "infrastructure": {"accounts": infra.get("accounts", []), "costStatus": "unmeasured",
                            "deployedReason": infra.get("deployedReason", DEFAULT_INFRASTRUCTURE)},
         "verification": suites,
-        "upgrade": {"policy": "patch", "migration": "files-only"}}
+        "upgrade": {"migration": "files-only"}}
     if set(spec["templates"]) - {item["source"] for item in artefacts}:
         fail("spec.templates names an absent implementation file")
     manifest["platforms"] = spec["supportedPlatforms"]
-    for field in ("toolchains", "classes", "implements", "upstream", "compatibility", "maintenance"):
+    for field in ("toolchains", "classes", "implements", "upstream", "compatibility", "maintenance", "release", "images", "vulnerabilityWaivers"):
         if field not in spec:
             fail("missing spec." + field)
         manifest[field] = spec[field]

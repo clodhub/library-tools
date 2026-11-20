@@ -28,7 +28,7 @@ def main():
             components.append(publisher.component_entry(directory.name, directory, ref, asset, store)[0])
         recipe = publisher.ROOT / "recipes" / "ourpoker"
         ref = bundle.pack(recipe, store)
-        body = {"components": components, "recipes": [publisher.recipe_entry(ref, store, "ourpoker-recipe")]}
+        body = {"components": components, "recipes": [publisher.recipe_entry(ref, store, "ourpoker-recipe")[0]]}
         command = ["node", str(publisher.ROOT / "tools/standards/validate-publications.mjs"), str(args.catalogue.resolve()), "-"]
         return subprocess.run(command, input=json.dumps(body), text=True, check=False).returncode
 

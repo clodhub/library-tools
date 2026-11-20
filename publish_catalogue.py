@@ -11,10 +11,15 @@ guardian verification summary (`--guardian-key`); the CycloneDX 1.6 bill of mate
 on ourapps-ae/<repo> (gh, keyring login) carries `<name>-<version>.tar`, `.cdx.json`, `.release.dsse.json`,
 `.guardian.dsse.json`, `.review.json` and, when the review report names retained documents (execution evidence, contexts,
 authorizations), `.evidence.tar` holding them at their store-relative paths; an existing release gets the assets it lacks, after its archive is checked
-to be the same bytes. Then POST to /api/dev/components or /api/dev/recipes with the API key.
+to be the same bytes. Then, with the API key (the catalogue's "Catalogue publish API"): classes/categories.json once, and per
+package its example images with a 480-pixel-wide WebP thumbnail each, the class it implements (once per class version) and its
+format 2 entry with its release channel, images, vulnerability waivers and quality. Quality is `reviewed` (certified when the
+guardian key is Level N's) and, once the recipe is published, `integration-tested` for every component version the recipe pins.
+AEPM_CHECKOUT names the aepm checkout to use (default: the workspace's aepm/).
 """
 import argparse
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -26,33 +31,18 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+AEPM = Path(os.environ.get("AEPM_CHECKOUT", ROOT / "aepm"))
 TEMP = Path("/private/var/folders/yk/8tzc9b_1713dlhdp5vzkgg100000gn/T/opencode")
 PY = "/Users/george/.pyenv/versions/3.12.8/bin/python3.12"
 ORIGIN = "https://ourapps.app"
 ORG = "ourapps-ae"
-
-GROUPS = {
-    "delivery": ["web-host", "apple-host", "android-host", "windows-desktop", "server-host", "ourapps-release", "store-update"],
-    "rooms": ["realtime-rooms", "room-directory", "guest-identity", "presence", "invitations", "private-views", "display-mode", "video-calls", "preferences"],
-    "game-framework": ["turn-engine", "game-clock", "seating", "fair-shuffle", "card-deck", "computer-players", "chip-ledger", "level-schedule", "tournament", "round-history", "rules-settings"],
-    "poker": ["poker-hand-ranking", "poker-odds", "holdem-rules", "poker-strategy"],
-    "presentation": ["theme", "theme-high-contrast", "controls", "table-layout", "card-graphics", "chip-graphics", "sound-cues", "guided-tour", "translations"],
-}
-
-
-def group_of(name):
-    for group, names in GROUPS.items():
-        if name in names:
-            return group
-    return "other"
-
 
 def run(argv, **kw):
     return subprocess.run(argv, check=True, capture_output=True, text=True, **kw)
 
 
 def load_aepm():
-    sys.path.insert(0, str(ROOT / "aepm"))
+    sys.path.insert(0, str(AEPM))
     from aepm import bom, bundle, model, trust, verification
     return bom, bundle, model, trust, verification
 
@@ -155,6 +145,25 @@ def release(repo, tag, base, files, digest, title, work):
 REQUIRED_ASSETS = ("tar", "cdx.json", "release.dsse.json", "guardian.dsse.json", "review.json")
 
 
+def vulnerability_refusals(refs, store):
+    """One line per package that may not be published: a known advisory against its upstream code that its manifest does
+    not waive, or an upstream purl OSV cannot check. Checked before anything is signed or uploaded."""
+    import vulnerabilities
+    lines = []
+    for name, ref in refs.items():
+        manifest, _ = verified_package(ref, store)
+        try:
+            _, refused, unused = vulnerabilities.check(manifest)
+        except vulnerabilities.Unqueryable as error:
+            lines.append(f"{name} {ref['version']}: vulnerabilities unknown, {error}")
+            continue
+        for key, affected in refused.items():
+            lines.append(f"{name} {ref['version']}: {key} affects {', '.join(affected)}; not waived")
+        for key in unused:
+            lines.append(f"{name} {ref['version']}: waiver {key} names no advisory OSV reports")
+    return lines
+
+
 def unverified_assets(repo, tag, base, files):
     """The release assets of files whose sha256 on GitHub is missing or differs from the local bytes, and every required
     asset (the archive, bill of materials, both attestations and the review report) this publication lacks."""
@@ -171,7 +180,11 @@ def unverified_assets(repo, tag, base, files):
 
 
 def post(path, body, key):
-    request = urllib.request.Request(ORIGIN + path, data=json.dumps(body).encode(), method="POST", headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "User-Agent": "aepm-publish/1.0 (+https://ourapps.app)"})
+    return send("POST", path, json.dumps(body).encode(), "application/json", key)
+
+
+def send(method, path, data, content_type, key):
+    request = urllib.request.Request(ORIGIN + path, data=data, method=method, headers={"Authorization": f"Bearer {key}", "Content-Type": content_type, "User-Agent": "aepm-publish/1.0 (+https://ourapps.app)"})
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             return response.status, json.loads(response.read())
@@ -219,6 +232,59 @@ def verified_package(ref, store):
     return bundle.read_archive(ref, archive.read_bytes())
 
 
+IMAGE_TYPES = {".png": "image/png", ".webp": "image/webp"}
+
+
+def thumbnail(data):
+    """A WebP 480 pixels wide (an image narrower than that keeps its width), keeping the aspect ratio."""
+    from PIL import Image
+    with Image.open(io.BytesIO(data)) as image:
+        image.load()
+        width = min(480, image.width)
+        height = max(1, round(image.height * width / image.width))
+        small = image.convert("RGBA" if "A" in image.getbands() or image.mode == "P" else "RGB")
+        if width != image.width:
+            small = small.resize((width, height), Image.LANCZOS)
+        out = io.BytesIO()
+        small.save(out, "WEBP", quality=82, method=6)
+        return out.getvalue()
+
+
+def images_of(manifest, payloads):
+    """The entry's images and the uploads they need: (entries, [(sha256 hex, bytes, content type)]), from the verified archive."""
+    entries, uploads = [], []
+    for image in manifest.get("images", []):
+        data = payloads[image["path"]]
+        small = thumbnail(data)
+        main, thumb = hashlib.sha256(data).hexdigest(), hashlib.sha256(small).hexdigest()
+        uploads += [(main, data, IMAGE_TYPES[Path(image["path"]).suffix.lower()]), (thumb, small, "image/webp")]
+        entries.append({"digest": "sha256:" + main, "thumbnail": "sha256:" + thumb, "caption": image["caption"],
+                        "platform": image["platform"], "width": image["width"], "height": image["height"]})
+    return entries, uploads
+
+
+def class_bodies(manifest):
+    """The class publication body of each class descriptor the manifest carries."""
+    return [{"format": 2, "class": item["descriptor"]} for item in manifest["classes"]]
+
+
+def certified(guardian_key):
+    """Whether the guardian key is Level N's, as the published policy names it."""
+    policy = load(ROOT / "tools/standards/levelnpolicy.json")
+    mine = public_key(guardian_key).strip()
+    return any(item["publicKey"].strip() == mine for item in policy["keys"]["guardian"])
+
+
+def pinned_components(recipe):
+    """name -> version of every component a recipe.json pins: each slot's preferred component and each job candidate."""
+    pins = {slot["preferred"]["name"]: slot["preferred"]["version"] for slot in recipe["components"]}
+    slots = {slot["id"]: slot for slot in recipe["components"]}
+    for job in recipe.get("jobs", []):
+        for candidate in job["candidates"]:
+            pins.setdefault(candidate["component"], candidate.get("version") or slots[job["slot"]]["preferred"]["version"])
+    return pins
+
+
 def foundation_facts(manifest):
     """Publisher declarations copied from the validated package manifest."""
     return {"licence": manifest["identity"]["licence"], **{
@@ -226,7 +292,8 @@ def foundation_facts(manifest):
         ("platforms", "classes", "implements", "upstream", "compatibility", "maintenance", "files", "artefacts")}}
 
 
-def recipe_entry(ref, store, repo):
+def recipe_entry(ref, store, repo, quality=None):
+    """The format 2 recipe entry and the image uploads it needs."""
     manifest, payloads = verified_package(ref, store)
     if manifest["kind"] != "recipe" or manifest["identity"]["name"] != ref["name"]:
         raise ValueError("recipe publication identity does not match the archive")
@@ -237,17 +304,21 @@ def recipe_entry(ref, store, repo):
     digest = "sha256:" + ref["digest"]
     short = ref["name"].split("/", 1)[1]
     asset = f"{short}-{ref['version']}.tar"
+    images, uploads = images_of(manifest, payloads)
     return {
-        "format": 1, "recipe": data, "digest": digest,
+        "format": 2, "recipe": data, "digest": digest,
         "source": {"repository": f"{ORG}/{repo}", "tag": f"v{ref['version']}"},
         "bundle": {"asset": asset, "digest": digest},
         "page": {"description": payloads[data["page"]["description"]].decode(),
-                 "diagram": svg if len(svg) < 200000 else None, "screenshots": []},
+                 "diagram": svg if len(svg) < 200000 else None},
         "foundations": foundation_facts(manifest),
-    }
+        "release": manifest["release"], "images": images, "vulnerabilityWaivers": manifest["vulnerabilityWaivers"],
+        "quality": quality,
+    }, uploads
 
 
-def component_entry(name, directory, ref, asset, store):
+def component_entry(name, directory, ref, asset, store, quality=None):
+    """The format 2 component entry, its version and the image uploads it needs. Its listing category is its class's."""
     manifest, payloads = verified_package(ref, store)
     if manifest["kind"] != "component" or manifest["identity"]["name"] != f"{ORG}/{name}":
         raise ValueError("component publication identity does not match the archive")
@@ -258,15 +329,15 @@ def component_entry(name, directory, ref, asset, store):
     description = description or manifest["facilities"][0]["description"]
     client = sorted(set(manifest["platforms"]) - {"server"})
     server = ["hosting-provider", "own-hardware"] if name in ("server-host", "realtime-rooms", "room-directory") else []
-    group = group_of(name)
+    categories = {segment for item in manifest["classes"] for segment in item["descriptor"]["category"].split("/")}
+    images, uploads = images_of(manifest, payloads)
     entry = {
-        "format": 1,
+        "format": 2,
         "name": manifest["identity"]["name"],
         "version": version,
         "digest": digest,
         "description": description,
-        "category": group,
-        "tags": sorted({group, *name.split("-")} - {"of", "and"})[:10],
+        "tags": sorted({*categories, *name.split("-")} - {"of", "and"})[:10],
         "targets": {"client": client, "server": server},
         "guardians": ["Level N Ltd (guardian key 08775f20)"],
         "provides": ports(manifest["provides"]),
@@ -280,8 +351,10 @@ def component_entry(name, directory, ref, asset, store):
         "interfaceDigests": interface_digests(payloads, manifest),
         "interfaceModules": interface_modules(payloads, manifest),
         "foundations": foundation_facts(manifest),
+        "release": manifest["release"], "images": images, "vulnerabilityWaivers": manifest["vulnerabilityWaivers"],
+        "quality": quality,
     }
-    return entry, version
+    return entry, version, uploads
 
 
 def settings_of(manifest):
@@ -330,7 +403,7 @@ def main():
     names = sorted(p.name for p in (ROOT / "components").iterdir() if (p / "component.json").is_file())
     directories = {name: ROOT / f"components/{name}" for name in names}
     directories["ourpoker"] = ROOT / "recipes/ourpoker"
-    sys.path.insert(0, str(ROOT / "aepm"))
+    sys.path.insert(0, str(AEPM))
     from aepm import ledger, space
     packaged = sum((directory / item["path"]).stat().st_size for directory in directories.values()
                    for item in json.loads((directory / "component.json").read_text())["files"])
@@ -344,9 +417,26 @@ def main():
     ledger.register(work, "work", purpose="catalogue publish store", keep=True)
     print(f"store {store}", flush=True)
     _, _, _, trust, _ = load_aepm()
+    refusals = vulnerability_refusals({name: refs[name] for name in names + ["ourpoker"] if not args.only or name in args.only}, store)
+    if refusals:
+        for line in refusals:
+            print(line)
+        print(f"store kept: {store}")
+        sys.exit(1)
     for ref in refs.values():
         trust.publish_release(store, ref, args.release_key)
-    results, published = [], []
+    quality = {"level": "reviewed", "certified": certified(args.guardian_key), "liveTested": None}
+    categories = load(ROOT / "classes/categories.json")
+    from aepm.foundations import validate_categories
+    validate_categories(categories, sorted({item["descriptor"]["category"] for ref in refs.values()
+                                            for item in verified_package(ref, store)[0]["classes"]}))
+    if not args.dry_run:
+        status, answer = post("/api/dev/categories", categories, args.key)
+        print("categories", status, answer.get("status") or answer, flush=True)
+        if status not in (200, 201):
+            print(f"store kept: {store}")
+            sys.exit(1)
+    results, published, classes_sent, versions = [], [], set(), {}
     for name in names + ["ourpoker"]:
         if args.only and name not in args.only:
             continue
@@ -358,21 +448,51 @@ def main():
         files, summary = sign_and_review(store, ref, args.release_key, args.guardian_key, work)
         version = ref["version"]
         if recipe:
-            body = recipe_entry(ref, store, repo)
+            body, uploads = recipe_entry(ref, store, repo, quality)
             asset = body["bundle"]["asset"]
             path = "/api/dev/recipes"
         else:
             asset = f"{name}-{version}.tar"
-            body, version = component_entry(name, directory, ref, asset, store)
+            body, version, uploads = component_entry(name, directory, ref, asset, store, quality)
             path = "/api/dev/components"
+        manifest, _ = verified_package(ref, store)
         if args.dry_run:
-            print(name, version, digest[:19], summary, len(json.dumps(body)), flush=True)
+            print(name, version, digest[:19], summary, len(json.dumps(body)), f"{len(uploads)} image files", flush=True)
             continue
         state = release(repo, f"v{version}", asset[:-len(".tar")], files, ref["digest"], f"{name} {version}", work)
         published.append((repo, f"v{version}", asset[:-len(".tar")], files))
-        status, answer = post(path, body, args.key)
-        results.append((name, version, state, status, answer.get("status") or answer.get("error") or answer))
-        print(name, version, state, status, answer.get("status") or answer, flush=True)
+        failed = None
+        for hexdigest, data, content_type in uploads:
+            status, answer = send("PUT", f"/api/dev/images/{hexdigest}", data, content_type, args.key)
+            if status not in (200, 201):
+                failed = (status, f"image {hexdigest[:12]}: {answer.get('error') or answer}")
+                break
+        for body_of_class in class_bodies(manifest):
+            key = (body_of_class["class"]["name"], body_of_class["class"]["version"])
+            if failed or key in classes_sent:
+                continue
+            status, answer = post("/api/dev/classes", body_of_class, args.key)
+            if status not in (200, 201):
+                failed = (status, f"class {key[0]} {key[1]}: {answer.get('error') or answer}")
+            else:
+                classes_sent.add(key)
+        status, answer = failed or post(path, body, args.key)
+        if status in (200, 201):
+            versions[manifest["identity"]["name"]] = version
+        results.append((name, version, state, status, answer.get("status") or answer.get("error") or answer if isinstance(answer, dict) else answer))
+        print(name, version, state, status, answer.get("status") or answer if isinstance(answer, dict) else answer, flush=True)
+    recipe_name = f"{ORG}/ourpoker"
+    if not args.dry_run and recipe_name in versions:
+        recipe_data = json.loads(verified_package(refs["ourpoker"], store)[1]["recipe.json"])
+        for component, pinned in sorted(pinned_components(recipe_data).items()):
+            if versions.get(component) != pinned:
+                print(f"{component} {pinned}: pinned by the recipe but not published in this run; quality unchanged")
+                continue
+            status, answer = post(f"/api/dev/components/{component.split('/', 1)[1]}/{pinned}/quality",
+                                  {**quality, "level": "integration-tested"}, args.key)
+            if status != 200:
+                results.append((component.split("/", 1)[1], pinned, "quality", status, answer.get("error") or answer))
+            print(component, pinned, "integration-tested", status, flush=True)
     bad = [r for r in results if r[3] not in (200, 201)]
     print(f"published {len(results) - len(bad)} of {len(results)}")
     # The store holds the only local copy of each signed statement and report; it goes only when GitHub holds every one of them
