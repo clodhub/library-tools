@@ -30,7 +30,9 @@ The catalogue checkout contains the shared publication validators. Archive ident
 python3.12 -B tools/validate_catalogue.py --catalogue "$OURAPPS"
 ```
 
-This command packs and validates all component and recipe publications without network or database writes. `publish_catalogue.py` uses the same projection helpers and signs reviews only after their required checks pass. It follows the catalogue's "Catalogue publish API":
+This command packs and validates all component and recipe publications without network or database writes.
+
+Run `publish_catalogue.py`, and any `git push` to ourapps-ae, with `GITHUB_TOKEN` and `GH_TOKEN` unset, so `gh` uses its keyring login; the session's `GITHUB_TOKEN` cannot write to ourapps-ae. `publish_catalogue.py` uses the same projection helpers and signs reviews only after their required checks pass. It follows the catalogue's "Catalogue publish API":
 - `classes/categories.json` once;
 - then, per package:
   - each example image from the verified archive, with a 480-pixel-wide WebP thumbnail;
