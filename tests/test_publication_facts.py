@@ -57,10 +57,24 @@ class PublicationFactsTests(unittest.TestCase):
         manifest = {"collect": [
             {"id": str(i), "type": "boolean", "grammar": "boolean", "required": False, "secret": False, **value}
             for i, value in enumerate(({}, {"default": False}, {"default": 0}, {"default": ""}))]}
-        self.assertEqual([setting["hasDefault"] for setting in publisher.settings_of(manifest)], [False, True, True, True])
+        settings = publisher.settings_of(manifest)
+        self.assertEqual([setting["hasDefault"] for setting in settings], [False, True, True, True])
+        self.assertEqual([setting.get("default", "absent") for setting in settings], ["absent", False, 0, ""])
         ports = [{"id": "example", "type": "ae/example", "version": "1.0.0", "optional": True, "path": "x.json"}]
-        self.assertTrue(publisher.ports(ports, True)[0]["optional"])
-        self.assertNotIn("optional", publisher.ports(ports)[0])
+        payloads = {"x.json": b'{"openrpc": "1.3.2", "info": {"title": "ae/example", "version": "1.0.0", "description": " An example. "}}'}
+        self.assertTrue(publisher.ports(ports, payloads, True)[0]["optional"])
+        self.assertNotIn("optional", publisher.ports(ports, payloads)[0])
+        self.assertEqual(publisher.ports(ports, payloads)[0]["description"], "An example.")
+
+    def test_the_page_comes_from_the_contract_without_the_facilities_line_or_generated_setting_list(self):
+        contract = (
+            "# Example\n\n## Purpose and facilities\nWhat it is.\n\nFacilities: `x` (y).\n\n## User inputs\nWhat `decks` means.\n\n"
+            "- `decks` (integer; optional; default `1`)\n- `decks`: explained by the author\n\n## Artefacts and dependencies\nFiles.\n\n"
+            "## Integration\nCall it.\n\n## Scenarios and presentation\nA table.\n\n## Updates and removal\nPatches replace files.\n")
+        manifest = {"documents": {"contract": "CONTRACT.md"}, "collect": [{"id": "decks"}]}
+        self.assertEqual(publisher.page_description(manifest, {"CONTRACT.md": contract.encode()}),
+                         "What it is.\n\n## Examples\n\nA table.\n\n## Settings\n\nWhat `decks` means.\n\n- `decks`: explained by the author\n\n"
+                         "## For developers: how an application uses it\n\nCall it.\n\n## Updates\n\nPatches replace files.")
 
 
 if __name__ == "__main__":

@@ -37,7 +37,9 @@ Run `publish_catalogue.py`, and any `git push` to ourapps-ae, with `GITHUB_TOKEN
 - then, per package:
   - each example image from the verified archive, with a 480-pixel-wide WebP thumbnail;
   - each class it carries, once per class version;
-  - its format 2 entry with `release`, `images`, `vulnerabilityWaivers` and `quality`.
+  - its entry (component format 3, recipe format 2) with `release`, `images`, `vulnerabilityWaivers` and `quality`. A component entry's `page.description` is the archive's CONTRACT.md: its purpose, then its scenarios as Examples, user inputs as Settings, and integration, infrastructure, verification and updates. Each interface carries its document's description and each setting its default.
+
+`--entries-only` publishes every listed component version again as an entry in the current format, after a format change. The archive comes from the version's GitHub release, checked against the catalogue's digest, and the description from `authoring/spec.json` at the release tag. Nothing is signed, reviewed or uploaded, and the catalogue keeps each version's quality.
 
 Quality is `reviewed`, certified when the guardian key is the one Level N's published policy names. After the recipe is published, every component version it pins (slot preferred components and job candidates) is set to `integration-tested`. It prints its store's path. The store is removed only when every package published and every required file (archive, bill of materials, release and guardian attestations, review report, and evidence when present) is on its GitHub release with the same sha256; otherwise, after a dry run, or with `--keep-store`, it is kept. The review policies (public keys and trusted package digests) are copied first to `publish-records/<run>/` beside it, which is kept; the review owner's private key signs nothing published and is removed with the store. Catalogue pages label incoming metadata as publisher-declared; signed execution evidence is verified by aepm under an owner's policy.
 

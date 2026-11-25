@@ -2,7 +2,7 @@
 """Pack every component and the recipe, sign and review each, release it on GitHub, and publish it to ourapps.app.
 
 usage: PYTHONPATH=aepm python3.12 -B tools/publish_catalogue.py --key oa_... --release-key PEM --guardian-key PEM
-                                                               [--only name ...] [--dry-run]
+                                                               [--only name ...] [--dry-run] [--entries-only]
 
 All packages are packed into one temporary store, so each review finds its dependencies. For each package:
 the Level N release attestation (`--release-key`); `aepm review --trusted --allow-network` under a policy that pins
@@ -13,8 +13,12 @@ on ourapps-ae/<repo> (gh, keyring login) carries `<name>-<version>.tar`, `.cdx.j
 authorizations), `.evidence.tar` holding them at their store-relative paths; an existing release gets the assets it lacks, after its archive is checked
 to be the same bytes. Then, with the API key (the catalogue's "Catalogue publish API"): classes/categories.json once, and per
 package its example images with a 480-pixel-wide WebP thumbnail each, the class it implements (once per class version) and its
-format 2 entry with its release channel, images, vulnerability waivers and quality. Quality is `reviewed` (certified when the
+entry (component format 3, recipe format 2) with its release channel, images, vulnerability waivers and quality. Quality is `reviewed` (certified when the
 guardian key is Level N's) and, once the recipe is published, `integration-tested` for every component version the recipe pins.
+A component entry's page text comes from the archive's CONTRACT.md, its interface descriptions from the interface documents.
+With --entries-only, every listed version of each component is published again as an entry in the current format, from the
+archive on its GitHub release (checked against the catalogue's digest): nothing is signed, reviewed or uploaded, and the
+catalogue keeps each version's quality.
 AEPM_CHECKOUT names the aepm checkout to use (default: the workspace's aepm/).
 """
 import argparse
@@ -200,10 +204,17 @@ def load(path):
     return json.loads(Path(path).read_text())
 
 
-def ports(items, allow_optional=False):
+def interface_description(payloads, port):
+    """What the interface document says the interface is: OpenRPC info.description, else its top-level description."""
+    document = json.loads(payloads[port["path"]])
+    text = (document.get("info") or {}).get("description") or document.get("description") or ""
+    return text.strip() if isinstance(text, str) else ""
+
+
+def ports(items, payloads, allow_optional=False):
     out = []
     for p in items:
-        item = {"id": p["id"], "type": p["type"], "version": p["version"]}
+        item = {"id": p["id"], "type": p["type"], "version": p["version"], "description": interface_description(payloads, p)}
         if allow_optional and p.get("optional") is True:
             item["optional"] = True
         out.append(item)
@@ -317,31 +328,35 @@ def recipe_entry(ref, store, repo, quality=None):
     }, uploads
 
 
-def component_entry(name, directory, ref, asset, store, quality=None):
-    """The format 2 component entry, its version and the image uploads it needs. Its listing category is its class's."""
+def component_entry(name, directory, ref, asset, store, quality=None, spec=None):
+    """The format 3 component entry, its version and the image uploads it needs. Its listing category is its class's. The
+    description is authoring/spec.json's (`spec`, else the working tree's), or the manifest's first facility."""
     manifest, payloads = verified_package(ref, store)
     if manifest["kind"] != "component" or manifest["identity"]["name"] != f"{ORG}/{name}":
         raise ValueError("component publication identity does not match the archive")
     digest = "sha256:" + ref["digest"]
     version = manifest["identity"]["version"]
     spec_path = directory / "authoring" / "spec.json"
-    description = load(spec_path).get("description") if spec_path.exists() else None
+    if spec is None and spec_path.exists():
+        spec = load(spec_path)
+    description = (spec or {}).get("description")
     description = description or manifest["facilities"][0]["description"]
     client = sorted(set(manifest["platforms"]) - {"server"})
     server = ["hosting-provider", "own-hardware"] if name in ("server-host", "realtime-rooms", "room-directory") else []
     categories = {segment for item in manifest["classes"] for segment in item["descriptor"]["category"].split("/")}
     images, uploads = images_of(manifest, payloads)
     entry = {
-        "format": 2,
+        "format": 3,
         "name": manifest["identity"]["name"],
         "version": version,
         "digest": digest,
         "description": description,
+        "page": {"description": page_description(manifest, payloads)},
         "tags": sorted({*categories, *name.split("-")} - {"of", "and"})[:10],
         "targets": {"client": client, "server": server},
         "guardians": ["Level N Ltd (guardian key 08775f20)"],
-        "provides": ports(manifest["provides"]),
-        "requires": ports(manifest["requires"], True),
+        "provides": ports(manifest["provides"], payloads),
+        "requires": ports(manifest["requires"], payloads, True),
         "dependencies": [{"name": d["name"], "version": d["version"]} for d in manifest["dependencies"]],
         "suitability": json.loads(payloads["suitability.json"]),
         "migration": migration_summary(json.loads(payloads["migration.json"]) if "migration.json" in payloads else None),
@@ -358,9 +373,48 @@ def component_entry(name, directory, ref, asset, store, quality=None):
 
 
 def settings_of(manifest):
-    """What the catalogue's fit rule reads of each setting."""
+    """What the catalogue's fit rule reads of each setting, and the default aepm writes when a recipe leaves it out."""
     return [{"id": c["id"], "type": c["type"], "grammar": c["grammar"], "required": bool(c["required"]),
-             "secret": bool(c["secret"]), "hasDefault": "default" in c} for c in manifest["collect"]]
+             "secret": bool(c["secret"]), "hasDefault": "default" in c, **({"default": c["default"]} if "default" in c else {})}
+            for c in manifest["collect"]]
+
+
+# The component page from CONTRACT.md: its purpose first, then these sections under the page's headings.
+PAGE_SECTIONS = (("Scenarios and presentation", "Examples"), ("User inputs", "Settings"),
+                 ("Integration", "For developers: how an application uses it"), ("Infrastructure", "Accounts and services"),
+                 ("Verification", "How it is checked"), ("Updates and removal", "Updates"))
+
+
+def contract_sections(text):
+    """CONTRACT.md's level-2 sections, heading to body."""
+    sections, heading, lines = {}, None, []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if heading is not None:
+                sections[heading] = "\n".join(lines).strip()
+            heading, lines = line[3:].strip(), []
+        elif heading is not None:
+            lines.append(line)
+    if heading is not None:
+        sections[heading] = "\n".join(lines).strip()
+    return sections
+
+
+def page_description(manifest, payloads):
+    """The page text from the verified archive's contract: the Facilities line and the generated setting list are left out,
+    because the page shows the description and the settings table."""
+    sections = contract_sections(payloads[manifest["documents"]["contract"]].decode())
+    purpose = "\n".join(line for line in sections.get("Purpose and facilities", "").splitlines() if not line.startswith("Facilities: ")).strip()
+    parts = [purpose]
+    for source, heading in PAGE_SECTIONS:
+        body = sections.get(source, "")
+        if source == "User inputs":
+            ids = {c["id"] for c in manifest["collect"]}
+            body = "\n".join(line for line in body.splitlines()
+                             if not any(line.startswith(f"- `{i}` (") for i in ids)).strip()
+        if body:
+            parts.append(f"## {heading}\n\n{body}")
+    return "\n\n".join(part for part in parts if part)
 
 
 def interface_digests(payloads, manifest):
@@ -391,6 +445,80 @@ def interface_modules(payloads, manifest):
     return result
 
 
+def released_digest(repo, version, asset):
+    """The sha256 GitHub reports for a release asset, or None."""
+    view = gh("release", "view", f"v{version}", "--repo", f"{ORG}/{repo}", "--json", "assets")
+    if view.returncode != 0:
+        return None
+    return next((a.get("digest") for a in json.loads(view.stdout)["assets"] if a["name"] == asset), None)
+
+
+def get(path):
+    with urllib.request.urlopen(urllib.request.Request(ORIGIN + path, headers={"User-Agent": "aepm-publish/1.0 (+https://ourapps.app)"})) as response:
+        return json.loads(response.read())
+
+
+def republish_entries(args):
+    """Every listed version of each component, published again as an entry in the current format. The archive is the one
+    on the version's GitHub release, checked against the catalogue's digest, and the description is spec.json at the
+    release tag. No signing, review or upload; quality is left out, so the catalogue keeps what it recorded. Images and
+    classes are sent first, as for a publication."""
+    names = sorted(p.name for p in (ROOT / "components").iterdir() if (p / "component.json").is_file())
+    names = [name for name in names if not args.only or name in args.only]
+    work = Path(tempfile.mkdtemp(prefix="republish-", dir=TEMP)).resolve()
+    store = work / "store"
+    (store / "objects").mkdir(parents=True)
+    print(f"store {store}", flush=True)
+    failed, done, sent_classes = 0, 0, set()
+    try:
+        for name in names:
+            directory = ROOT / "components" / name
+            for listed in get(f"/api/components/{name}")["versions"]:
+                version, digest = listed["version"], listed["digest"]
+                asset = f"{name}-{version}.tar"
+                fetched = gh("release", "download", f"v{version}", "--repo", f"{ORG}/{name}", "--pattern", asset, "--dir", str(work), "--clobber")
+                data = (work / asset).read_bytes() if fetched.returncode == 0 else b""
+                if "sha256:" + hashlib.sha256(data).hexdigest() != digest:
+                    print(name, version, "refused: the GitHub release does not hold the archive the catalogue lists", flush=True)
+                    failed += 1
+                    continue
+                ref = {"name": f"{ORG}/{name}", "version": version, "digest": digest.removeprefix("sha256:")}
+                (store / "objects" / f"{ref['digest']}.tar").write_bytes(data)
+                shown = subprocess.run(["git", "-C", str(directory), "show", f"v{version}:authoring/spec.json"], capture_output=True, text=True)
+                spec = json.loads(shown.stdout) if shown.returncode == 0 else {}
+                body, _, uploads = component_entry(name, directory, ref, asset, store, None, spec)
+                manifest, _ = verified_package(ref, store)
+                if args.dry_run:
+                    print(name, version, len(json.dumps(body)), "bytes", flush=True)
+                    continue
+                problem = None
+                for hexdigest, image, content_type in uploads:
+                    status, answer = send("PUT", f"/api/dev/images/{hexdigest}", image, content_type, args.key)
+                    if status not in (200, 201):
+                        problem = f"image {hexdigest[:12]}: {answer.get('error') or answer}"
+                        break
+                for body_of_class in class_bodies(manifest):
+                    key = (body_of_class["class"]["name"], body_of_class["class"]["version"])
+                    if problem or key in sent_classes:
+                        continue
+                    status, answer = post("/api/dev/classes", body_of_class, args.key)
+                    if status not in (200, 201):
+                        problem = f"class {key[0]} {key[1]}: {answer.get('error') or answer}"
+                    sent_classes.add(key)
+                if problem is None:
+                    status, answer = post("/api/dev/components", body, args.key)
+                    if status not in (200, 201):
+                        problem = answer.get("error") or answer
+                print(name, version, problem or answer.get("status"), flush=True)
+                failed += problem is not None
+                done += problem is None
+    finally:
+        if not args.keep_store:
+            shutil.rmtree(work, ignore_errors=True)
+    print(f"republished {done}, failed {failed}")
+    sys.exit(1 if failed else 0)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--key", required=True)
@@ -399,7 +527,12 @@ def main():
     parser.add_argument("--only", nargs="*", default=[])
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--keep-store", action="store_true", help="keep the run's store even when every asset is verified on GitHub")
+    parser.add_argument("--entries-only", action="store_true",
+                        help="publish the component entries again in the current entry format for versions whose GitHub release holds "
+                             "the same archive: no signing, review or upload, and the stored quality stays")
     args = parser.parse_args()
+    if args.entries_only:
+        return republish_entries(args)
     names = sorted(p.name for p in (ROOT / "components").iterdir() if (p / "component.json").is_file())
     directories = {name: ROOT / f"components/{name}" for name in names}
     directories["ourpoker"] = ROOT / "recipes/ourpoker"

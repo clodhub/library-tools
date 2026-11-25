@@ -1,4 +1,4 @@
-"""The format 2 publication parts the publish tool builds: thumbnails, image uploads, class bodies, certification and pins."""
+"""The publication parts the publish tool builds: thumbnails, image uploads, class bodies, certification and pins."""
 import hashlib
 import io
 from pathlib import Path
