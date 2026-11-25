@@ -53,7 +53,7 @@ export async function validate(doc) {
       const { diagnostics } = await new Parser().parse(JSON.stringify(doc));
       for (const d of diagnostics) (d.severity === 0 ? errors : warnings).push(`${d.code}: ${d.message} at ${d.path.join(".")}`);
     } else {
-      const ajv = new Ajv2020({ strict: true, allErrors: true, keywords: ["x-version", "x-ourapps", "x-ourapps-modules"] });
+      const ajv = new Ajv2020({ strict: true, allErrors: true, keywords: ["x-version", "x-clodhub", "x-clodhub-modules"] });
       addFormats(ajv);
       ajv.compile(doc);
     }

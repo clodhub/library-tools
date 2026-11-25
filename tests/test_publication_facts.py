@@ -34,7 +34,7 @@ class PublicationFactsTests(unittest.TestCase):
         self.assertEqual(set(entry["targets"]["client"]), set(manifest["platforms"]) - {"server"})
 
     def test_outer_identity_and_digest_cannot_substitute_another_archive(self):
-        for field, value in (("name", "ourapps-ae/not-theme"), ("digest", "0" * 64)):
+        for field, value in (("name", "clodhub/not-theme"), ("digest", "0" * 64)):
             ref = {**self.ref, field: value}
             with self.subTest(field=field), self.assertRaises(Exception):
                 publisher.verified_package(ref, self.store)

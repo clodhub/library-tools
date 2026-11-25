@@ -16,7 +16,11 @@ class Evidence(unittest.TestCase):
 
     def test_each_report_has_the_catalogue_shape(self):
         for path, report in self.reports():
-            self.assertEqual(publish_evidence.check(report, path), "ourpoker")
+            if report["recipe"]["name"].startswith(publish_evidence.publisher.ORG + "/"):
+                self.assertEqual(publish_evidence.check(report, path), "ourpoker")
+            else:
+                with self.assertRaisesRegex(ValueError, "recipe name"):
+                    publish_evidence.check(report, path)
 
     def test_figures_add_up(self):
         for path, report in self.reports():

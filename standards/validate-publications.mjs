@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Validate archive-derived publication bodies with the catalogue's shared rules, without network or database writes.
-// Usage: node tools/standards/validate-publications.mjs OURAPPS_CHECKOUT PUBLICATIONS.json
+// Usage: node tools/standards/validate-publications.mjs CATALOGUE_CHECKOUT PUBLICATIONS.json
 import { readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";

@@ -277,8 +277,8 @@ def visual_definition(spec):
         if "default" in item:
             entry["default"] = item["default"]
         settings.append(entry)
-    return {"id": "ourapps-ae." + name, "name": spec["title"], "kind": "component", "status": "example",
-            "package": "ourapps-ae/" + name, "version": spec["version"], "ports": ports, "settings": settings}
+    return {"id": f"{model.SCOPE}.{name}", "name": spec["title"], "kind": "component", "status": "example",
+            "package": f"{model.SCOPE}/{name}", "version": spec["version"], "ports": ports, "settings": settings}
 
 
 def connected_example(spec, definition):
@@ -408,7 +408,7 @@ def instructions_md(spec, suites):
     name = spec["name"]
     out = [f"# {spec['title']} instructions", "", "## For the agent",
            spec.get("agentInstructions") or todo("what the agent selects, configures and connects"), "",
-           f"- Select package `ourapps-ae/{name}` version `{spec['version']}`."]
+           f"- Select package `{model.SCOPE}/{name}` version `{spec['version']}`."]
     settings = settings_lines(spec)
     out += ["- Settings to configure:", *[f"  {line}" for line in settings]] if settings else ["- No installer settings."]
     for port in spec["provides"]:
@@ -439,7 +439,7 @@ def default_suitability(spec):
 
 def agents_md(spec):
     name = spec["name"]
-    return (f"# {name}\n\nRepository: `ourapps-ae/{name}`. Read `.opencode/knowledge/00-index.md` and `workflow.md` before work.\n"
+    return (f"# {name}\n\nRepository: `{model.SCOPE}/{name}`. Read `.opencode/knowledge/00-index.md` and `workflow.md` before work.\n"
              f"Licence: {spec['licence']} (`{spec['licenceFile']}`, `{spec['noticeFile']}`).\n"
              "The class contracts and package manifest define the public interfaces and verification checks.\n")
 
@@ -447,13 +447,13 @@ def agents_md(spec):
 def index_md(spec, implementation):
     name = spec["name"]
     code = ", ".join(f"`{p}`" for p in implementation) or "none yet"
-    return (f"# {name} ownership\n\nRepository: https://github.com/ourapps-ae/{name}.git.\n"
+    return (f"# {name} ownership\n\nRepository: https://github.com/{model.SCOPE}/{name}.git.\n"
              f"Current code: {code}.\n"
              "`component.json`, `tools.lock.json` and `visual/` are generated from `authoring/spec.json`. "
              "Licence documents belong to their respective authors and are included as supplied. "
              f"`CONTRACT.md`, `INSTRUCTIONS.md` and `SOURCE.md` are hand-written and kept on regeneration.\n"
             f"Every artefact installs under `components/{name}/`, which aepm places at `components/<slot id>/` of the application; "
-            f"other code reaches this component only through the entry modules in each interface document's `x-ourapps-modules` "
+            f"other code reaches this component only through the entry modules in each interface document's `x-clodhub-modules` "
             f"(paths relative to the component root; set by the scaffolder from `spec.modules`, or from `implementation/<platform>/index.ts` "
             f"and the native source folders).\n")
 
@@ -462,7 +462,7 @@ def workflow_md(spec, suites):
     name = spec["name"]
     commands = "; ".join(f"`{' '.join(s['argv'])}`" for s in suites)
     return ("# Local workflow\n\n"
-             f"Repository: `ourapps-ae/{name}`. "
+             f"Repository: `{model.SCOPE}/{name}`. "
              f"Licence: `{spec['licence']}` (`{spec['licenceFile']}`, `{spec['noticeFile']}`).\n"
              f"Suite commands from the package root: {commands}.\n"
              "Pack: `python3 -B -m aepm pack . --store STORE`. "
@@ -501,7 +501,7 @@ def build_manifest(spec, files, suites):
     infra = spec["infrastructure"]
     manifest = {
         "format": 3, "kind": "component",
-        "identity": {"name": "ourapps-ae/" + name, "version": spec["version"], "sourceRevision": SOURCE_REVISION,
+        "identity": {"name": f"{model.SCOPE}/{name}", "version": spec["version"], "sourceRevision": SOURCE_REVISION,
                       "sourceTreeDigest": "0" * 64, "licence": spec["licence"]},
         "facilities": spec["facilities"],
         "documents": {"contract": "CONTRACT.md", "interfaces": interface_docs, "examples": examples, "licenceNotice": spec["licenceFile"]},
@@ -529,7 +529,7 @@ def build_manifest(spec, files, suites):
 
 
 def entry_modules(spec, directory):
-    """x-ourapps-modules: spec.modules, else index.ts of each script platform and the source folder of each native one."""
+    """x-clodhub-modules: spec.modules, else index.ts of each script platform and the source folder of each native one."""
     if spec["modules"]:
         return dict(spec["modules"])
     modules = {}
@@ -544,16 +544,16 @@ def entry_modules(spec, directory):
 
 
 def write_entry_modules(spec, directory, writer):
-    """Set x-ourapps-modules in each provided interface document; documents keep every other field."""
+    """Set x-clodhub-modules in each provided interface document; documents keep every other field."""
     modules = entry_modules(spec, directory)
     for port in spec["provides"]:
         path = directory / (port.get("path") or f"interfaces/{port['id']}.json")
         if not path.is_file():
             continue
         document = read_json(path)
-        if type(document) is not dict or document.get("x-ourapps-modules") == modules:
+        if type(document) is not dict or document.get("x-clodhub-modules") == modules:
             continue
-        document["x-ourapps-modules"] = modules
+        document["x-clodhub-modules"] = modules
         writer.put(path.relative_to(directory).as_posix(), dump(document))
 
 

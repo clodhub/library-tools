@@ -1,14 +1,14 @@
 #!/usr/bin/env python3.12
-"""Pack every component and the recipe, sign and review each, release it on GitHub, and publish it to ourapps.app.
+"""Pack every component and the recipe, sign and review each, release it on GitHub, and publish it to clodhub.com.
 
-usage: PYTHONPATH=aepm python3.12 -B tools/publish_catalogue.py --key oa_... --release-key PEM --guardian-key PEM
+usage: PYTHONPATH=aepm python3.12 -B tools/publish_catalogue.py --key ch_... --release-key PEM --guardian-key PEM
                                                                [--only name ...] [--dry-run] [--entries-only]
 
 All packages are packed into one temporary store, so each review finds its dependencies. For each package:
 the Level N release attestation (`--release-key`); `aepm review --trusted --allow-network` under a policy that pins
 the Level N keys and trusts the package and its dependencies; publishing stops unless required-local passed; the
 guardian verification summary (`--guardian-key`); the CycloneDX 1.6 bill of materials. A GitHub release `v<version>`
-on ourapps-ae/<repo> (gh, keyring login) carries `<name>-<version>.tar`, `.cdx.json`, `.release.dsse.json`,
+on clodhub/<repo> (gh, keyring login) carries `<name>-<version>.tar`, `.cdx.json`, `.release.dsse.json`,
 `.guardian.dsse.json`, `.review.json` and, when the review report names retained documents (execution evidence, contexts,
 authorizations), `.evidence.tar` holding them at their store-relative paths; an existing release gets the assets it lacks, after its archive is checked
 to be the same bytes. Then, with the API key (the catalogue's "Catalogue publish API"): classes/categories.json once, and per
@@ -38,8 +38,9 @@ ROOT = Path(__file__).resolve().parents[1]
 AEPM = Path(os.environ.get("AEPM_CHECKOUT", ROOT / "aepm"))
 TEMP = Path("/private/var/folders/yk/8tzc9b_1713dlhdp5vzkgg100000gn/T/opencode")
 PY = "/Users/george/.pyenv/versions/3.12.8/bin/python3.12"
-ORIGIN = "https://ourapps.app"
-ORG = "ourapps-ae"
+ORIGIN = "https://clodhub.com"
+ORG = "clodhub"
+USER_AGENT = f"aepm-publish/1.0 (+{ORIGIN})"
 
 def run(argv, **kw):
     return subprocess.run(argv, check=True, capture_output=True, text=True, **kw)
@@ -188,7 +189,7 @@ def post(path, body, key):
 
 
 def send(method, path, data, content_type, key):
-    request = urllib.request.Request(ORIGIN + path, data=data, method=method, headers={"Authorization": f"Bearer {key}", "Content-Type": content_type, "User-Agent": "aepm-publish/1.0 (+https://ourapps.app)"})
+    request = urllib.request.Request(ORIGIN + path, data=data, method=method, headers={"Authorization": f"Bearer {key}", "Content-Type": content_type, "User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             return response.status, json.loads(response.read())
@@ -424,12 +425,12 @@ def interface_digests(payloads, manifest):
 
 
 def interface_modules(payloads, manifest):
-    """Each provided document's x-ourapps-modules, with whether the component installs that entry."""
+    """Each provided document's x-clodhub-modules, with whether the component installs that entry."""
     short = manifest["identity"]["name"].split("/")[1]
     destinations = [a["destination"] for a in manifest["artefacts"]]
     result = {}
     for p in manifest["provides"]:
-        modules = json.loads(payloads[p["path"]]).get("x-ourapps-modules")
+        modules = json.loads(payloads[p["path"]]).get("x-clodhub-modules")
         if not isinstance(modules, dict):
             continue
         entry = {}
@@ -466,7 +467,7 @@ def spec_at_tag(directory, tag):
 
 
 def get(path):
-    with urllib.request.urlopen(urllib.request.Request(ORIGIN + path, headers={"User-Agent": "aepm-publish/1.0 (+https://ourapps.app)"})) as response:
+    with urllib.request.urlopen(urllib.request.Request(ORIGIN + path, headers={"User-Agent": USER_AGENT})) as response:
         return json.loads(response.read())
 
 

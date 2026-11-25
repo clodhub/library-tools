@@ -56,7 +56,7 @@ sys.path.insert(0, str(TOOLS_DIR))
 from sync_required_interfaces import class_conflicts, required_copies  # noqa: E402
 sys.path.insert(0, str(AEPM))
 from aepm import locks, space  # noqa: E402
-from aepm.model import AepmError  # noqa: E402
+from aepm.model import AepmError, SCOPE  # noqa: E402
 
 
 class Report:
@@ -241,7 +241,7 @@ def check_documents(directory, manifest, report):
 
 def check_standard_fields(directory, manifest, report):
     identity = manifest["identity"]
-    if identity["name"] != "ourapps-ae/" + directory.name:
+    if identity["name"] != f"{SCOPE}/{directory.name}":
         report.error(f"identity.name {identity['name']!r} does not match directory {directory.name!r}")
     if manifest["kind"] != "component":
         report.warn(f"kind is {manifest['kind']!r}, expected 'component'")
@@ -353,7 +353,7 @@ def typescript_exports(sources):
 
 
 def check_entry_modules(directory, manifest, documents, report, provided=None):
-    """Every interface document declares x-ourapps-modules. For the documents of provided interfaces (all, when `provided` is
+    """Every interface document declares x-clodhub-modules. For the documents of provided interfaces (all, when `provided` is
     None) each entry is installed and exports or declares its tagged methods; a required copy's entries are the provider's."""
     prefix = entry_prefix(manifest)
     by_destination = {item["destination"]: item["source"] for item in manifest["artefacts"]}
@@ -362,9 +362,9 @@ def check_entry_modules(directory, manifest, documents, report, provided=None):
         document = load_json(directory / path, path, report)
         if not isinstance(document, dict):
             continue
-        modules = document.get("x-ourapps-modules")
+        modules = document.get("x-clodhub-modules")
         if not isinstance(modules, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in modules.items()):
-            report.error(f"{path}: x-ourapps-modules must be an object mapping platform to path")
+            report.error(f"{path}: x-clodhub-modules must be an object mapping platform to path")
             continue
         if provided is not None and path not in provided:
             continue
@@ -388,7 +388,7 @@ def check_entry_modules(directory, manifest, documents, report, provided=None):
                     if not re.search(pattern.replace("{name}", re.escape(name)), text):
                         report.error(f"{path}: method {name} tagged {language} is not a public name in {entry}")
             else:
-                report.error(f"{path}: x-ourapps-modules platform {platform!r} is not one of {sorted((*SCRIPT_PLATFORMS, *NATIVE_PLATFORMS))}")
+                report.error(f"{path}: x-clodhub-modules platform {platform!r} is not one of {sorted((*SCRIPT_PLATFORMS, *NATIVE_PLATFORMS))}")
     exports = typescript_exports([item[3] for item in pending])
     for path, platform, entry, source, names in pending:
         found = exports.get(source)

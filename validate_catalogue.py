@@ -1,7 +1,7 @@
 #!/usr/bin/env python3.12
 """Pack the library and validate its archive-derived catalogue publications without publishing.
 
-Usage: PYTHONPATH=aepm python3.12 -B tools/validate_catalogue.py --catalogue OURAPPS_CHECKOUT
+Usage: PYTHONPATH=aepm python3.12 -B tools/validate_catalogue.py --catalogue CATALOGUE_CHECKOUT
 """
 import argparse
 import json

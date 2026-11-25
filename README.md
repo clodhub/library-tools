@@ -24,15 +24,15 @@ python3.12 -B classes/check_scaffolder.py
 
 ## Catalogue publication checks
 
-The catalogue checkout contains the shared publication validators. Archive identity, licences, source records, class descriptors and contents are read from digest-checked archives.
+`CLODHUB` names the catalogue checkout (clodhub/clodhub, `clodhub/` in the workspace), which contains the shared publication validators. Archive identity, licences, source records, class descriptors and contents are read from digest-checked archives.
 
 ```sh
-python3.12 -B tools/validate_catalogue.py --catalogue "$OURAPPS"
+python3.12 -B tools/validate_catalogue.py --catalogue "$CLODHUB"
 ```
 
 This command packs and validates all component and recipe publications without network or database writes.
 
-Run `publish_catalogue.py`, and any `git push` to ourapps-ae, with `GITHUB_TOKEN` and `GH_TOKEN` unset, so `gh` uses its keyring login; the session's `GITHUB_TOKEN` cannot write to ourapps-ae. `publish_catalogue.py` uses the same projection helpers and signs reviews only after their required checks pass. It follows the catalogue's "Catalogue publish API":
+Run `publish_catalogue.py`, and any `git push` to clodhub, with `GITHUB_TOKEN` and `GH_TOKEN` unset, so `gh` uses its keyring login. `publish_catalogue.py` uses the same projection helpers and signs reviews only after their required checks pass. It follows the catalogue's "Catalogue publish API":
 - `classes/categories.json` once;
 - then, per package:
   - each example image from the verified archive, with a 480-pixel-wide WebP thumbnail;
@@ -46,7 +46,7 @@ Quality is `reviewed`, certified when the guardian key is the one Level N's publ
 ## Build reports
 
 ```sh
-python3.12 -B tools/publish_evidence.py --key oa_... [tools/evidence/REPORT.json ...]
+python3.12 -B tools/publish_evidence.py --key ch_... [tools/evidence/REPORT.json ...]
 ```
 
 `tools/evidence/` holds one JSON report per agent build of a recipe (format 1, kind `recipe-build`):

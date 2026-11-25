@@ -33,13 +33,13 @@ class EntryModuleTests(unittest.TestCase):
               "public struct Deck {}\npublic func shuffle() {}\nfunc hidden() {}\nextension Deck { public static func make() {} }\n")
         write(self.package / "implementation/android/src/Deck.kt",
               "class Deck {\n    fun shuffle() {}\n    private fun hidden() {}\n    internal fun inner() {}\n}\n")
-        self.manifest = {"kind": "component", "identity": {"name": "ourapps-ae/deck"}, "artefacts": [
+        self.manifest = {"kind": "component", "identity": {"name": "clodhub/deck"}, "artefacts": [
             {"source": "implementation/" + path, "destination": "components/deck/" + path}
             for path in ("web/index.ts", "web/deck.ts", "web/deck.css", "apple/Sources/Deck.swift", "android/src/Deck.kt")]}
 
     def document(self, modules, methods):
         write(self.package / "interfaces/deck.json", json.dumps({
-            "openrpc": "1.3.2", "info": {"title": "ae/deck", "version": "1.0.0"}, "x-ourapps-modules": modules,
+            "openrpc": "1.3.2", "info": {"title": "ae/deck", "version": "1.0.0"}, "x-clodhub-modules": modules,
             "methods": [{"name": name, "params": [], "result": {"name": "r", "schema": {}}, "tags": [{"name": tag} for tag in tags]}
                         for name, tags in methods]}))
 
@@ -68,12 +68,12 @@ class EntryModuleTests(unittest.TestCase):
         self.assertEqual(self.errors(), [
             "interfaces/deck.json: web entry module web/main.ts is not an installed file of the package (components/deck/web/main.ts)",
             "interfaces/deck.json: apple folder apple/Missing has no installed file (components/deck/apple/Missing/)",
-            "interfaces/deck.json: x-ourapps-modules platform 'phone' is not one of ['android', 'apple', 'desktop', 'server', 'web']"])
+            "interfaces/deck.json: x-clodhub-modules platform 'phone' is not one of ['android', 'apple', 'desktop', 'server', 'web']"])
         write(self.package / "interfaces/deck.json", json.dumps({"openrpc": "1.3.2"}))
-        self.assertEqual(self.errors(), ["interfaces/deck.json: x-ourapps-modules must be an object mapping platform to path"])
+        self.assertEqual(self.errors(), ["interfaces/deck.json: x-clodhub-modules must be an object mapping platform to path"])
 
     def test_recipe_entries_are_relative_to_the_application_root(self):
-        self.manifest = {"kind": "recipe", "identity": {"name": "ourapps-ae/game"},
+        self.manifest = {"kind": "recipe", "identity": {"name": "clodhub/game"},
                          "artefacts": [{"source": "implementation/web/index.ts", "destination": "web/index.ts"},
                                        {"source": "implementation/web/deck.ts", "destination": "web/deck.ts"}]}
         self.document({"server": "web/index.ts"}, [("shuffle", ["typescript"])])
@@ -86,14 +86,14 @@ class EntryModuleTests(unittest.TestCase):
         self.assertEqual(report.errors, [])
         write(self.package / "interfaces/deck.json", json.dumps({"openrpc": "1.3.2"}))
         C.check_entry_modules(self.package, self.manifest, ["interfaces/deck.json"], report, set())
-        self.assertEqual(report.errors, ["interfaces/deck.json: x-ourapps-modules must be an object mapping platform to path"])
+        self.assertEqual(report.errors, ["interfaces/deck.json: x-clodhub-modules must be an object mapping platform to path"])
 
     def test_json_schema_documents_may_carry_modules(self):
         import shutil
         import subprocess
         path = self.root / "settings.schema.json"
         path.write_text(json.dumps({"$schema": "https://json-schema.org/draft/2020-12/schema", "title": "ae/deck-configuration",
-                                    "x-version": "1.0.0", "x-ourapps-modules": {}, "type": "object"}))
+                                    "x-version": "1.0.0", "x-clodhub-modules": {}, "type": "object"}))
         result = subprocess.run([shutil.which("node"), str(C.VALIDATOR), str(path)], capture_output=True, text=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -113,7 +113,7 @@ class EntryModuleTests(unittest.TestCase):
     def test_shared_class_is_independent_of_provider_documentation(self):
         from aepm.model import canonical
         components = self.root / "components"
-        descriptor = {"name": "ourapps-ae/deck-class", "version": "1.0.0", "provides": [
+        descriptor = {"name": "clodhub/deck-class", "version": "1.0.0", "provides": [
             {"type": "ae/deck", "version": "1.0.0", "path": "classes/deck/interface.json"}],
             "inventory": [{"path": "classes/deck/interface.json", "digest": hashlib.sha256(b"{}").hexdigest()}]}
         entry = {"reference": {"name": descriptor["name"], "version": descriptor["version"],
@@ -133,7 +133,7 @@ class EntryModuleTests(unittest.TestCase):
         manifest["classes"][0]["descriptor"]["provides"] = []
         manifest["classes"][0]["reference"]["digest"] = hashlib.sha256(canonical(manifest["classes"][0]["descriptor"])).hexdigest()
         (components / "b/component.json").write_text(json.dumps(manifest))
-        self.assertIn("conflicting class ourapps-ae/deck-class 1.0.0: a, b", S.class_conflicts(components))
+        self.assertIn("conflicting class clodhub/deck-class 1.0.0: a, b", S.class_conflicts(components))
 
 
 if __name__ == "__main__":

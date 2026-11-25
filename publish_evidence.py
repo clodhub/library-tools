@@ -1,7 +1,7 @@
 #!/usr/bin/env python3.12
-"""Publish recipe build reports (tools/evidence/*.json) to ourapps.app.
+"""Publish recipe build reports (tools/evidence/*.json) to clodhub.com.
 
-usage: python3.12 -B tools/publish_evidence.py --key oa_... [REPORT.json ...]
+usage: python3.12 -B tools/publish_evidence.py --key ch_... [REPORT.json ...]
 
 Without arguments every report in tools/evidence/ is sent. Each goes to POST /api/dev/recipes/<name>/reports with a manage
 key belonging to a catalogue curator (the catalogue's "Catalogue publish API", Build reports). A report already published
