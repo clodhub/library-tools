@@ -453,6 +453,18 @@ def released_digest(repo, version, asset):
     return next((a.get("digest") for a in json.loads(view.stdout)["assets"] if a["name"] == asset), None)
 
 
+def spec_at_tag(directory, tag):
+    """authoring/spec.json at the release tag (fetched from origin when missing here), None when the tag has none, False
+    when the tag is on neither."""
+    git = ["git", "-C", str(directory)]
+    if subprocess.run([*git, "rev-parse", "-q", "--verify", f"refs/tags/{tag}"], capture_output=True).returncode != 0:
+        subprocess.run([*git, "fetch", "-q", "origin", "tag", tag, "--no-tags"], capture_output=True)
+        if subprocess.run([*git, "rev-parse", "-q", "--verify", f"refs/tags/{tag}"], capture_output=True).returncode != 0:
+            return False
+    shown = subprocess.run([*git, "show", f"{tag}:authoring/spec.json"], capture_output=True, text=True)
+    return json.loads(shown.stdout) if shown.returncode == 0 else None
+
+
 def get(path):
     with urllib.request.urlopen(urllib.request.Request(ORIGIN + path, headers={"User-Agent": "aepm-publish/1.0 (+https://ourapps.app)"})) as response:
         return json.loads(response.read())
@@ -484,8 +496,11 @@ def republish_entries(args):
                     continue
                 ref = {"name": f"{ORG}/{name}", "version": version, "digest": digest.removeprefix("sha256:")}
                 (store / "objects" / f"{ref['digest']}.tar").write_bytes(data)
-                shown = subprocess.run(["git", "-C", str(directory), "show", f"v{version}:authoring/spec.json"], capture_output=True, text=True)
-                spec = json.loads(shown.stdout) if shown.returncode == 0 else {}
+                spec = spec_at_tag(directory, f"v{version}")
+                if spec is False:
+                    print(name, version, f"refused: tag v{version} is not on {ORG}/{name}", flush=True)
+                    failed += 1
+                    continue
                 body, _, uploads = component_entry(name, directory, ref, asset, store, None, spec)
                 manifest, _ = verified_package(ref, store)
                 if args.dry_run:
