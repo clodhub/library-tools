@@ -8,7 +8,7 @@ python3.12 -B tools/check_component.py --all --allow-network
 python3.12 -B -m unittest discover -s tools/tests
 ```
 
-`CLOD_CHECKOUT` names another clod checkout for every tool here (set `PYTHONPATH` to the same folder).
+`CLOD_CHECKOUT` names another clod checkout for every tool here (set `PYTHONPATH` to the same folder). `CLOD_LIBRARY` names another list in the format of `library.json`, which every tool here and in `classes/` then reads instead; a second recipe keeps its own list this way until it joins the library.
 
 `library.json` lists the library: the folders under `components/`, `recipes/` and `classes/` that the tools check, regenerate, bundle, validate, audit and publish (`library.py` reads it). Any other folder there is not part of the library and is never read or written. Add a package to the list to bring it in.
 

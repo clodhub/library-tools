@@ -1,12 +1,14 @@
 """The library: the folders under components/, recipes/ and classes/ that library.json lists. The tools read, check,
-regenerate, bundle and publish only these; any other folder there is not part of the library."""
+regenerate, bundle and publish only these; any other folder there is not part of the library. CLOD_LIBRARY names
+another list in the same format, which every tool then reads instead."""
 
 import json
+import os
 from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parent.parent
-LIST = Path(__file__).resolve().parent / "library.json"
+LIST = Path(os.environ.get("CLOD_LIBRARY") or Path(__file__).resolve().parent / "library.json").resolve()
 KINDS = ("components", "recipes", "classes")
 FOLDER = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 
@@ -37,7 +39,7 @@ def folders(kind: str, base: Path | None = None) -> list[Path]:
     result = [base / name for name in names(kind)]
     missing = [str(path) for path in result if not path.is_dir()]
     if missing:
-        raise LibraryError("listed in library.json but missing: " + ", ".join(missing))
+        raise LibraryError(f"listed in {LIST} but missing: " + ", ".join(missing))
     return result
 
 
