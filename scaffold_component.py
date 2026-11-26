@@ -29,6 +29,9 @@ SPEC_KEYS = {"name", "version", "sourceRevision", "title", "description", "facil
                "migration", "keepsData", "infrastructure", "modules", "licence", "licenceFile", "noticeFile",
                "supportedPlatforms", "toolchains", "templates", "classes", "implements", "upstream", "compatibility", "maintenance",
                "release", "images", "vulnerabilityWaivers"}
+# The spec fields classes/generate.py keeps; a new component's spec has none of them.
+GENERATED = ("supportedPlatforms", "toolchains", "classes", "upstream", "compatibility", "maintenance", "release", "images",
+             "vulnerabilityWaivers")
 TEXT_KEYS = ("purpose", "userInputs", "integration", "infrastructure", "verification", "scenarios", "updates")
 SKIPPED_ANYWHERE = {".DS_Store", "__pycache__"}
 UNPACKAGED_TOP = {".git", ".gitignore", ".gitattributes", ".opencode", "authoring", "releases", "component.json", "AGENTS.md"}
@@ -138,7 +141,7 @@ def load_spec(path, directory):
             fail(f"unknown platform {platform!r}; expected one of {PLATFORMS}")
     spec["platforms"] = platforms
     from clod.foundations import PLATFORMS as supported_targets
-    targets = list_of(spec.get("supportedPlatforms"), "supportedPlatforms", True)
+    targets = list_of(spec.get("supportedPlatforms", []), "supportedPlatforms", "supportedPlatforms" in spec)
     if any(type(target) is not str or target not in supported_targets for target in targets) or len(set(targets)) != len(targets):
         fail("spec.supportedPlatforms must name unique supported targets")
     templates = list_of(spec.get("templates"), "templates")
@@ -208,7 +211,7 @@ class Writer:
     def __init__(self, base, force):
         self.base, self.force, self.log = base, force, []
 
-    def put(self, relative, content, protect=False):
+    def put(self, relative, content, protect=False, newline=True):
         target = self.base / relative
         if protect and target.exists() and not self.force:
             self.log.append(f"kept   {relative}")
@@ -216,7 +219,7 @@ class Writer:
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_symlink():
             fail(f"refusing to write through symbolic link: {relative}")
-        target.write_text(content if content.endswith("\n") else content + "\n", encoding="utf-8")
+        target.write_text(content if content.endswith("\n") or not newline else content + "\n", encoding="utf-8")
         self.log.append(f"wrote  {relative}")
         return True
 
@@ -528,12 +531,34 @@ def build_manifest(spec, files, suites):
         "upgrade": {"migration": "files-only"}}
     if set(spec["templates"]) - {item["source"] for item in artefacts}:
         fail("spec.templates names an absent implementation file")
-    manifest["platforms"] = spec["supportedPlatforms"]
+    manifest["platforms"] = spec.get("supportedPlatforms", [])
     for field in ("toolchains", "classes", "implements", "upstream", "compatibility", "maintenance", "release", "images", "vulnerabilityWaivers"):
-        if field not in spec:
+        if field in spec:
+            manifest[field] = spec[field]
+        elif field == "implements" or not first_scaffold(spec):
             fail("missing spec." + field)
-        manifest[field] = spec[field]
     return manifest, missing
+
+
+def first_scaffold(spec):
+    return not any(field in spec for field in GENERATED)
+
+
+def generated_fields(directory, spec, manifest):
+    """A new component's generated fields, computed by classes/generate.py's own code from the classes `implements` names."""
+    sys.path.insert(0, str(ROOT / "classes"))
+    import generate
+    import library
+    folders = {generate.read(folder / "class.json")["name"]: folder for folder in library.classes()}
+    names = [item.get("name") if type(item) is dict else item for item in list_of(spec["implements"], "implements", True)]
+    unknown = [name for name in names if name not in folders]
+    if unknown:
+        fail(f"spec.implements names classes the library list does not: {unknown}")
+    bundles = [generate.class_bundle(folders[name]) for name in names]
+    try:
+        return generate.metadata(directory, manifest, bundles, [bundle["reference"] for bundle in bundles])
+    except (subprocess.CalledProcessError, ValueError, OSError) as error:
+        fail(f"generated fields of a new component: {error}")
 
 
 def entry_modules(spec, directory):
@@ -612,6 +637,9 @@ def scaffold(directory, spec_path, do_render, force):
     files, warnings = walk(directory)
     suites = normalise_suites(spec, files)
     manifest, missing_platforms = build_manifest(spec, files, suites)
+    if first_scaffold(spec):
+        manifest = generated_fields(directory, spec, manifest)
+        notes.append("new component: classes/generate.py computed the generated fields; running it next writes them into the spec")
     if missing_platforms:
         notes.append(f"spec.platforms lists platforms with no implementation files: {missing_platforms}")
     notes.extend(warnings)
@@ -619,7 +647,7 @@ def scaffold(directory, spec_path, do_render, force):
         model.validate_component(manifest)
     except model.ClodError as error:
         fail(f"manifest rejected by clod model.validate_component: {error.code} at {error.path}")
-    writer.put("component.json", model.canonical(manifest).decode("utf-8"))
+    writer.put("component.json", model.canonical(manifest).decode("utf-8"), newline=False)
     return writer.log, notes, manifest
 
 
