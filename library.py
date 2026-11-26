@@ -9,6 +9,8 @@ import re
 
 ROOT = Path(__file__).resolve().parent.parent
 LIST = Path(os.environ.get("CLOD_LIBRARY") or Path(__file__).resolve().parent / "library.json").resolve()
+# Where the classes checks write their proofs: classes/proof for the library, a proof folder beside any other list.
+PROOF = LIST.parent / "proof" if os.environ.get("CLOD_LIBRARY") else ROOT / "classes" / "proof"
 KINDS = ("components", "recipes", "classes")
 FOLDER = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 

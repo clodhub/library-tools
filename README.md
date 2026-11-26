@@ -8,7 +8,7 @@ python3.12 -B tools/check_component.py --all --allow-network
 python3.12 -B -m unittest discover -s tools/tests
 ```
 
-`CLOD_CHECKOUT` names another clod checkout for every tool here (set `PYTHONPATH` to the same folder). `CLOD_LIBRARY` names another list in the format of `library.json`, which every tool here and in `classes/` then reads instead; a second recipe keeps its own list this way until it joins the library.
+`CLOD_CHECKOUT` names another clod checkout for every tool here (set `PYTHONPATH` to the same folder). `CLOD_LIBRARY` names another list in the format of `library.json`, which every tool here and in `classes/` then reads instead; a second recipe keeps its own list this way until it joins the library. With it, the classes checks write their proofs to a `proof/` folder beside that list instead of `classes/proof/`. `CLOD_UPSTREAM_CACHE` names another folder for the fetched upstream sources the metadata generator keeps (default `classes/upstream/`).
 
 `library.json` lists the library: the folders under `components/`, `recipes/` and `classes/` that the tools check, regenerate, bundle, validate, audit and publish (`library.py` reads it). Any other folder there is not part of the library and is never read or written. Add a package to the list to bring it in.
 

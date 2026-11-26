@@ -312,7 +312,7 @@ def check_interfaces(directory, manifest, report):
     folders = library.components()
     if directory.resolve() not in {folder.resolve() for folder in folders}:
         folders.append(directory)
-    for path, expected in required_copies(folders, directory.name).items():
+    for path, expected in required_copies(folders, directory.name, library.classes()).items():
         current = directory / path
         if not current.is_file() or current.read_bytes() != expected:
             report.error(f"{path} is not a byte copy of its independent class document (run tools/sync_required_interfaces.py)")

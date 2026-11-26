@@ -2,8 +2,9 @@
 """Copy independent class interface documents to the components that require them.
 
 Usage: python3.12 -B tools/sync_required_interfaces.py [--check]
-For every component in tools/library.json, each required interface defined by a packaged class gets
-interfaces/required-<id>.json, a byte copy of its class document. Class identities and inventory bytes must agree.
+For every component in tools/library.json, each required interface a listed class defines (or, failing that, a class
+a listed component packages) gets interfaces/required-<id>.json, a byte copy of its class document. Class identities and
+inventory bytes must agree.
 With --check nothing is written and differences give exit status 1.
 """
 
@@ -72,23 +73,44 @@ def class_conflicts(folders, only=None):
     return problems
 
 
-def required_copies(folders, only=None):
+def listed_class_documents(class_folders):
+    """(interface type, version) -> (class folder name, its document) for each type a listed class provides."""
+    result = {}
+    for directory in map(Path, class_folders):
+        try:
+            descriptor = json.loads((directory / "class.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise SyncError(f"{directory.name}/class.json: cannot parse ({error})") from error
+        for port in descriptor["provides"]:
+            result.setdefault((port["type"], port["version"]), (directory.name, directory / Path(port["path"]).name))
+    return result
+
+
+def required_copies(folders, only=None, class_folders=()):
     """Relative path -> bytes that each requiring component among the given folders must hold (for one component when
-    `only` is given)."""
+    `only` is given). A listed class's own folder is the source of the types it provides; a type no listed class provides
+    comes from a component that bundles its class."""
     folders = {Path(directory).name: Path(directory) for directory in folders}
     found = manifests(folders.values())
-    provided = class_interfaces(found)
+    bundled = class_interfaces(found)
+    listed = listed_class_documents(class_folders)
     copies = {}
     for name, manifest in found.items():
         if only is not None and name != only:
             continue
+        own = {(port["type"], port["version"]) for port in manifest.get("provides", [])}
         for port in manifest.get("requires", []):
-            source = provided.get((port["type"], port["version"]))
-            if source is None or source[0] == name:
+            key = (port["type"], port["version"])
+            if key in own:
                 continue
-            document = folders[source[0]] / source[1]
+            if key in listed:
+                source, document = listed[key]
+            elif key in bundled and bundled[key][0] != name:
+                source, document = bundled[key][0], folders[bundled[key][0]] / bundled[key][1]
+            else:
+                continue
             if not document.is_file():
-                raise SyncError(f"{source[0]} provides {port['type']} but {source[1]} is missing")
+                raise SyncError(f"{source} provides {port['type']} but {document} is missing")
             relative = f"interfaces/required-{port['id']}.json"
             key = relative if only is not None else f"{name}/{relative}"
             copies[key] = document.read_bytes()
@@ -101,7 +123,7 @@ def main(argv=None):
     arguments = parser.parse_args(argv)
     try:
         folders = library.components()
-        copies = required_copies(folders)
+        copies = required_copies(folders, class_folders=library.classes())
         found = manifests(folders)
     except (SyncError, library.LibraryError) as error:
         print(f"error: {error}", file=sys.stderr)
