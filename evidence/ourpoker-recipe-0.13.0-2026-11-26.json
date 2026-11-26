@@ -1,0 +1,132 @@
+{
+  "format": 2,
+  "kind": "recipe-build",
+  "recipe": {
+    "name": "pkg:clod/com.clodhub/ourpoker-recipe",
+    "version": "0.13.0",
+    "digest": "sha256:d792942b3cc4f334bea3a964ad38bcd989cde6b0d71caaf250b40b617b78d302"
+  },
+  "clod": {
+    "repository": "clodhub/clod",
+    "commit": "a2deca8"
+  },
+  "date": "2026-11-26",
+  "agent": {
+    "harness": "OpenCode 2.4.1 (opencode run, non-interactive, permissions approved automatically)",
+    "model": "anthropic/claude-opus-5-5",
+    "session": "a new session in an empty folder outside the recipe author's workspace, given only the prompt"
+  },
+  "prompt": "Build an application from the OurPoker recipe: https://clodhub.com/recipes/ourpoker-recipe.txt",
+  "conditions": "The session started in an empty temporary folder and read nothing from the workspace. It ran non-interactively, so its one round of questions was cancelled and it took the recipe's defaults, choosing own-hardware for the server question, which has no default. clod verify --trusted --allow-network, after the agent installed Kotlin 2.2.21 itself: 86 required-local passed; 43 platform passed; 5 platform and 1 deployed blocked (context missing); 1 platform blocked (kotlin-policy, tool version mismatch). Without Kotlin 2.2, 20 Android checks were blocked as tool unavailable.",
+  "answers": {
+    "bundleId": "",
+    "computerPlayers": "on-request",
+    "decisionSeconds": 30,
+    "languages": [
+      "en",
+      "fr",
+      "de",
+      "es"
+    ],
+    "lessons": true,
+    "levelSeconds": 600,
+    "look": "night",
+    "players": 9,
+    "publish": false,
+    "rebuys": 1,
+    "releases": false,
+    "repository": "",
+    "scale": "small",
+    "server": "own-hardware",
+    "serverAddress": "http://localhost:8788",
+    "startingChips": 5000,
+    "targets": [
+      "web",
+      "ios",
+      "android",
+      "macos",
+      "windows",
+      "tvos"
+    ],
+    "updates": false,
+    "video": true,
+    "videoServiceUrl": "",
+    "webAddress": "http://localhost:5173"
+  },
+  "measured": {
+    "method": "OpenCode's JSON event stream, from the prompt to the agent's final report; nothing waited for a person",
+    "elapsedMinutes": 31.5,
+    "waitingForPersonMinutes": 0,
+    "activeMinutes": 31.5,
+    "replies": 30,
+    "toolCalls": 33,
+    "tokens": {
+      "input": 68,
+      "output": 8892,
+      "reasoning": 1796,
+      "cacheRead": 1676753,
+      "cacheWrite": 645719,
+      "total": 2333228
+    },
+    "costUsd": 3.78
+  },
+  "results": [
+    {
+      "target": "server",
+      "built": true,
+      "tested": "type check; 37 of 37 tests",
+      "ran": "on Node on this Mac; health check answers"
+    },
+    {
+      "target": "web",
+      "built": true,
+      "tested": "browser check: page loads, a player sits, a hand is dealt, the table fits 1280x800 and 390x844, no script error",
+      "ran": "vite preview against the local server"
+    },
+    {
+      "target": "ios",
+      "built": true,
+      "tested": "built for the iOS simulator, unsigned",
+      "ran": "not launched"
+    },
+    {
+      "target": "macos",
+      "built": true,
+      "tested": "built for Mac Catalyst, unsigned",
+      "ran": "not launched"
+    },
+    {
+      "target": "tvos",
+      "built": true,
+      "tested": "built for the Apple TV simulator, unsigned",
+      "ran": "not launched"
+    },
+    {
+      "target": "android",
+      "built": true,
+      "tested": "debug build; unit tests pass",
+      "ran": "not launched on an emulator"
+    },
+    {
+      "target": "windows",
+      "built": true,
+      "tested": "unsigned installer built on the Mac; desktop tests 2 of 2",
+      "ran": "not installed on Windows"
+    }
+  ],
+  "update": "none: no deploy, so no two-step update",
+  "problems": [
+    "clod doctor reported every tool ok, but 20 Android platform checks need kotlinc 2.2, which doctor does not check; the agent downloaded Kotlin 2.2.21 from GitHub to run them.",
+    "The display-mode kotlin-policy check stays blocked with a tool version mismatch even with Kotlin 2.2.21; nothing says which version it needs.",
+    "The Cloudflare path was not exercised: with no person to answer, the agent chose own-hardware.",
+    "The agent left the server and the web preview running, so the non-interactive session did not exit after its final report.",
+    "The Vite chunk-size warning (over 500 kB) appears again in the web and desktop builds.",
+    "The agent once wrote results for background builds before they finished, then retracted them itself; the final report matches the logs."
+  ],
+  "rating": {
+    "score": 7,
+    "of": 10,
+    "by": "the building agent",
+    "mostHelpful": "clod doctor should check for every tool the package checks need, including the exact Kotlin compiler versions, so clod verify does not stop on a missing or mismatched kotlinc that the doctor reported as fine."
+  }
+}
