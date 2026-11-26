@@ -19,15 +19,15 @@ class SuiteStorageTests(unittest.TestCase):
         self.package, self.work = root / "package", root / "work"
         self.package.mkdir()
         self.work.mkdir()
-        state = mock.patch.dict(os.environ, {"AEPM_STATE_HOME": str(root / "state")})
+        state = mock.patch.dict(os.environ, {"CLOD_STATE_HOME": str(root / "state")})
         state.start()
         self.addCleanup(state.stop)
         # the suite reports which machine locks are held while it runs, and whether its copy is the only one present
-        aepm = str(checker.AEPM)
+        clod = str(checker.CLOD)
         (self.package / "check.py").write_text(
-            "import json, os, sys\nfrom pathlib import Path\nsys.path.insert(0, %r)\nos.environ['AEPM_STATE_HOME'] = %r\nfrom aepm import locks\n"
+            "import json, os, sys\nfrom pathlib import Path\nsys.path.insert(0, %r)\nos.environ['CLOD_STATE_HOME'] = %r\nfrom clod import locks\n"
             "held = [h['kind'] for h in locks.holders() if h['held']]\n"
-            "Path(sys.argv[1]).write_text(json.dumps({'held': held, 'copies': sorted(p.name for p in Path('..').iterdir())}))\n" % (aepm, str(root / "state")))
+            "Path(sys.argv[1]).write_text(json.dumps({'held': held, 'copies': sorted(p.name for p in Path('..').iterdir())}))\n" % (clod, str(root / "state")))
         self.out = root / "out"
         self.out.mkdir()
         self.suites = [{"id": f"s{n}", "root": "package", "scope": "required-local", "argv": ["python3", "check.py", str(self.out / f"s{n}.json")],
@@ -53,7 +53,7 @@ class SuiteStorageTests(unittest.TestCase):
         self.assertEqual(json.loads((self.out / "s0.json").read_text())["held"], ["xcode"])
 
     def test_too_little_space_stops_before_copying(self):
-        with mock.patch("aepm.space.free_bytes", return_value=1024):
+        with mock.patch("clod.space.free_bytes", return_value=1024):
             counts, errors = self.run_checks()
         self.assertEqual(counts, (0, 0))
         self.assertIn("insufficient-space", errors[0])

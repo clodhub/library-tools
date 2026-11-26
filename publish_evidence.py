@@ -15,7 +15,8 @@ import sys
 import publish_catalogue as publisher
 
 EVIDENCE = Path(__file__).resolve().parent / "evidence"
-FIELDS = {"format", "kind", "recipe", "aepm", "date", "agent", "prompt", "conditions", "answers", "measured", "results",
+BUILD_REPORT_FORMAT = 2
+FIELDS = {"format", "kind", "recipe", "clod", "date", "agent", "prompt", "conditions", "answers", "measured", "results",
           "update", "problems", "rating"}
 
 
@@ -23,12 +24,14 @@ def check(report, path):
     """The report's shape as the catalogue requires it; raises ValueError naming the file and what is wrong."""
     if set(report) != FIELDS:
         raise ValueError(f"{path}: fields {sorted(set(report) ^ FIELDS)} missing or extra")
-    if report["format"] != 1 or report["kind"] != "recipe-build":
-        raise ValueError(f"{path}: format 1, kind recipe-build expected")
+    if report["format"] != BUILD_REPORT_FORMAT or report["kind"] != "recipe-build":
+        raise ValueError(f"{path}: format {BUILD_REPORT_FORMAT}, kind recipe-build expected")
     recipe = report["recipe"]
-    if not recipe["name"].startswith(publisher.ORG + "/") or not recipe["digest"].startswith("sha256:"):
+    _, _, model, _, _ = publisher.load_clod()
+    parts = model.parse_package(recipe["name"])
+    if parts is None or parts["kind"] != "recipe" or not str(recipe["digest"]).startswith("sha256:"):
         raise ValueError(f"{path}: recipe name or digest")
-    return recipe["name"].split("/", 1)[1]
+    return parts["name"]
 
 
 def main(argv=None):

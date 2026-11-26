@@ -1,8 +1,8 @@
 #!/usr/bin/env python3.12
 """Copy independent class interface documents to the components that require them.
 
-Usage: python3.12 -B tools/sync_required_interfaces.py [--check] [--components DIR]
-For every components/*/component.json, each required interface defined by a packaged class gets
+Usage: python3.12 -B tools/sync_required_interfaces.py [--check]
+For every component in tools/library.json, each required interface defined by a packaged class gets
 interfaces/required-<id>.json, a byte copy of its class document. Class identities and inventory bytes must agree.
 With --check nothing is written and differences give exit status 1.
 """
@@ -17,21 +17,22 @@ import sys
 sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import library  # noqa: E402
 
 
 class SyncError(Exception):
     pass
 
 
-def manifests(components):
+def manifests(folders):
+    """Folder name -> component.json of each given component folder."""
     result = {}
-    for directory in sorted(Path(components).iterdir()):
-        path = directory / "component.json"
-        if directory.is_dir() and not directory.name.startswith(".") and path.is_file():
-            try:
-                result[directory.name] = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError) as error:
-                raise SyncError(f"{directory.name}/component.json: cannot parse ({error})") from error
+    for directory in map(Path, folders):
+        try:
+            result[directory.name] = json.loads((directory / "component.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise SyncError(f"{directory.name}/component.json: cannot parse ({error})") from error
     return result
 
 
@@ -45,15 +46,15 @@ def class_interfaces(found):
     return result
 
 
-def class_conflicts(components, only=None):
-    """Conflicting class identities, descriptors or inventory bytes (involving `only` when given)."""
-    components = Path(components)
+def class_conflicts(folders, only=None):
+    """Conflicting class identities, descriptors or inventory bytes among the given component folders (involving `only`
+    when given)."""
+    folders = {Path(directory).name: Path(directory) for directory in folders}
     identities = {}
     problems = []
-    import sys
-    sys.path.insert(0, os.environ.get("AEPM_CHECKOUT", str(ROOT / "aepm")))
-    from aepm.model import canonical
-    for name, manifest in manifests(components).items():
+    sys.path.insert(0, os.environ.get("CLOD_CHECKOUT", str(ROOT / "clod")))
+    from clod.model import canonical
+    for name, manifest in manifests(folders.values()).items():
         for entry in manifest["classes"]:
             reference, descriptor = entry["reference"], entry["descriptor"]
             encoded = canonical(descriptor)
@@ -61,7 +62,7 @@ def class_conflicts(components, only=None):
                 problems.append(f"{name}: class descriptor digest differs for {reference['name']} {reference['version']}")
             identities.setdefault((reference["name"], reference["version"]), []).append((name, reference["digest"], encoded))
             for item in descriptor["inventory"]:
-                path = components / name / item["path"]
+                path = folders[name] / item["path"]
                 if (not path.is_file() or path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != item["digest"]) \
                         and (only is None or only == name):
                     problems.append(f"{name}: class inventory digest differs for {item['path']}")
@@ -71,10 +72,11 @@ def class_conflicts(components, only=None):
     return problems
 
 
-def required_copies(components, only=None):
-    """Relative path -> bytes that each requiring component must hold (for one component when `only` is given)."""
-    components = Path(components)
-    found = manifests(components)
+def required_copies(folders, only=None):
+    """Relative path -> bytes that each requiring component among the given folders must hold (for one component when
+    `only` is given)."""
+    folders = {Path(directory).name: Path(directory) for directory in folders}
+    found = manifests(folders.values())
     provided = class_interfaces(found)
     copies = {}
     for name, manifest in found.items():
@@ -84,7 +86,7 @@ def required_copies(components, only=None):
             source = provided.get((port["type"], port["version"]))
             if source is None or source[0] == name:
                 continue
-            document = components / source[0] / source[1]
+            document = folders[source[0]] / source[1]
             if not document.is_file():
                 raise SyncError(f"{source[0]} provides {port['type']} but {source[1]} is missing")
             relative = f"interfaces/required-{port['id']}.json"
@@ -96,17 +98,19 @@ def required_copies(components, only=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check", action="store_true", help="report differences without writing")
-    parser.add_argument("--components", type=Path, default=ROOT / "components")
     arguments = parser.parse_args(argv)
     try:
-        copies = required_copies(arguments.components)
-        found = manifests(arguments.components)
-    except SyncError as error:
+        folders = library.components()
+        copies = required_copies(folders)
+        found = manifests(folders)
+    except (SyncError, library.LibraryError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
+    located = {directory.name: directory for directory in folders}
     differences, manifest_paths = [], []
     for relative, data in sorted(copies.items()):
-        target = arguments.components / relative
+        name, path = relative.split("/", 1)
+        target = located[name] / path
         if target.is_symlink():
             print(f"error: {relative} is a symbolic link", file=sys.stderr)
             return 1
@@ -126,7 +130,7 @@ def main(argv=None):
         print(("differs: " if arguments.check else "wrote: ") + item)
     for item in manifest_paths:
         print("manifest: " + item)
-    conflicts = class_conflicts(arguments.components)
+    conflicts = class_conflicts(folders)
     for item in conflicts:
         print("classes: " + item)
     print(f"{len(copies)} required documents; {len(differences)} " + ("differ" if arguments.check else "written")

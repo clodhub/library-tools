@@ -1,7 +1,7 @@
 #!/usr/bin/env python3.12
-"""Audit package ownership, upstream releases and signed verification records in batches.
+"""Audit package ownership, upstream releases and signed verification records of the library (tools/library.json).
 
-Usage: PYTHONPATH=aepm python3.12 -B tools/audit_library.py [--check-updates] [--store STORE --policy POLICY]
+Usage: PYTHONPATH=clod python3.12 -B tools/audit_library.py [--check-updates] [--store STORE --policy POLICY]
 Without --check-updates no network requests are made. The report never infers a successful test date from package metadata.
 """
 import argparse
@@ -77,10 +77,9 @@ def main():
     args = parser.parse_args()
     if bool(args.store) != bool(args.policy):
         parser.error("--store and --policy must be supplied together")
-    _, bundle, _, _, _ = publisher.load_aepm()
-    from aepm.foundations import maintenance_facts
-    directories = sorted(p for p in (publisher.ROOT / "components").iterdir() if (p / "component.json").is_file())
-    directories.append(publisher.ROOT / "recipes/ourpoker")
+    _, bundle, _, _, _ = publisher.load_clod()
+    from clod.foundations import maintenance_facts
+    directories = publisher.library.components() + publisher.library.recipes()
     cache = {}
 
     def read(address):

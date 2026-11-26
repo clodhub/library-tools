@@ -1,6 +1,6 @@
 """Entry-module, artefact-location and provider rules of tools/check_component.py and tools/sync_required_interfaces.py.
 
-Run: PYTHONPATH=aepm python3.12 -B -m unittest discover -s tools/tests
+Run: PYTHONPATH=clod python3.12 -B -m unittest discover -s tools/tests
 """
 import json
 import hashlib
@@ -33,13 +33,13 @@ class EntryModuleTests(unittest.TestCase):
               "public struct Deck {}\npublic func shuffle() {}\nfunc hidden() {}\nextension Deck { public static func make() {} }\n")
         write(self.package / "implementation/android/src/Deck.kt",
               "class Deck {\n    fun shuffle() {}\n    private fun hidden() {}\n    internal fun inner() {}\n}\n")
-        self.manifest = {"kind": "component", "identity": {"name": "clodhub/deck"}, "artefacts": [
+        self.manifest = {"kind": "component", "identity": {"name": "pkg:clod/com.clodhub/deck"}, "artefacts": [
             {"source": "implementation/" + path, "destination": "components/deck/" + path}
             for path in ("web/index.ts", "web/deck.ts", "web/deck.css", "apple/Sources/Deck.swift", "android/src/Deck.kt")]}
 
     def document(self, modules, methods):
         write(self.package / "interfaces/deck.json", json.dumps({
-            "openrpc": "1.3.2", "info": {"title": "ae/deck", "version": "1.0.0"}, "x-clodhub-modules": modules,
+            "openrpc": "1.3.2", "info": {"title": "com.clodhub/deck", "version": "1.0.0"}, "x-clodhub-modules": modules,
             "methods": [{"name": name, "params": [], "result": {"name": "r", "schema": {}}, "tags": [{"name": tag} for tag in tags]}
                         for name, tags in methods]}))
 
@@ -73,7 +73,7 @@ class EntryModuleTests(unittest.TestCase):
         self.assertEqual(self.errors(), ["interfaces/deck.json: x-clodhub-modules must be an object mapping platform to path"])
 
     def test_recipe_entries_are_relative_to_the_application_root(self):
-        self.manifest = {"kind": "recipe", "identity": {"name": "clodhub/game"},
+        self.manifest = {"kind": "recipe", "identity": {"name": "pkg:clod/com.clodhub/game-recipe"},
                          "artefacts": [{"source": "implementation/web/index.ts", "destination": "web/index.ts"},
                                        {"source": "implementation/web/deck.ts", "destination": "web/deck.ts"}]}
         self.document({"server": "web/index.ts"}, [("shuffle", ["typescript"])])
@@ -92,17 +92,17 @@ class EntryModuleTests(unittest.TestCase):
         import shutil
         import subprocess
         path = self.root / "settings.schema.json"
-        path.write_text(json.dumps({"$schema": "https://json-schema.org/draft/2020-12/schema", "title": "ae/deck-configuration",
+        path.write_text(json.dumps({"$schema": "https://json-schema.org/draft/2020-12/schema", "title": "com.clodhub/deck-configuration",
                                     "x-version": "1.0.0", "x-clodhub-modules": {}, "type": "object"}))
         result = subprocess.run([shutil.which("node"), str(C.VALIDATOR), str(path)], capture_output=True, text=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_port_ids(self):
-        manifest = {"provides": [{"id": "game-adapter", "type": "ae/game-adapter"}],
-                    "requires": [{"id": "wrapped-game-adapter", "type": "ae/game-adapter"}, {"id": "seating", "type": "ae/seating"}]}
+        manifest = {"provides": [{"id": "game-adapter", "type": "com.clodhub/game-adapter"}],
+                    "requires": [{"id": "wrapped-game-adapter", "type": "com.clodhub/game-adapter"}, {"id": "seating", "type": "com.clodhub/seating"}]}
         self.assertEqual([C.expected_port_id(manifest, key, port) for key in ("provides", "requires") for port in manifest[key]],
                          ["game-adapter", "wrapped-game-adapter", "seating"])
-        self.assertEqual(C.expected_port_id({"provides": []}, "requires", {"id": "x", "type": "ae/game-adapter"}), "game-adapter")
+        self.assertEqual(C.expected_port_id({"provides": []}, "requires", {"id": "x", "type": "com.clodhub/game-adapter"}), "game-adapter")
 
     def test_artefact_locations(self):
         report = C.Report()
@@ -111,10 +111,10 @@ class EntryModuleTests(unittest.TestCase):
         self.assertEqual(report.errors, ["artefact x installs at components/other/x, outside components/deck/"])
 
     def test_shared_class_is_independent_of_provider_documentation(self):
-        from aepm.model import canonical
+        from clod.model import canonical
         components = self.root / "components"
-        descriptor = {"name": "clodhub/deck-class", "version": "1.0.0", "provides": [
-            {"type": "ae/deck", "version": "1.0.0", "path": "classes/deck/interface.json"}],
+        descriptor = {"name": "pkg:clod/com.clodhub/deck-class", "version": "1.0.0", "provides": [
+            {"type": "com.clodhub/deck", "version": "1.0.0", "path": "classes/deck/interface.json"}],
             "inventory": [{"path": "classes/deck/interface.json", "digest": hashlib.sha256(b"{}").hexdigest()}]}
         entry = {"reference": {"name": descriptor["name"], "version": descriptor["version"],
                                 "digest": hashlib.sha256(canonical(descriptor)).hexdigest()}, "descriptor": descriptor}
@@ -122,18 +122,20 @@ class EntryModuleTests(unittest.TestCase):
             write(components / name / "interfaces/deck.json", text)
             write(components / name / "classes/deck/interface.json", "{}")
             write(components / name / "component.json", json.dumps({"provides": [
-                {"id": "deck", "type": "ae/deck", "version": "1.0.0", "path": "interfaces/deck.json"}], "requires": [], "classes": [entry]}))
-        self.assertEqual(S.class_conflicts(components), [])
+                {"id": "deck", "type": "com.clodhub/deck", "version": "1.0.0", "path": "interfaces/deck.json"}], "requires": [], "classes": [entry]}))
+        folders = lambda *names: [components / name for name in names]
+        self.assertEqual(S.class_conflicts(folders("a", "b")), [])
         write(components / "user/component.json", json.dumps({"provides": [], "classes": [], "requires": [
-             {"id": "deck", "type": "ae/deck", "version": "1.0.0", "path": "interfaces/required-deck.json"}]}))
-        self.assertEqual(S.required_copies(components, "user"), {"interfaces/required-deck.json": b"{}"})
+             {"id": "deck", "type": "com.clodhub/deck", "version": "1.0.0", "path": "interfaces/required-deck.json"}]}))
+        self.assertEqual(S.required_copies(folders("a", "b", "user"), "user"), {"interfaces/required-deck.json": b"{}"})
+        self.assertEqual(S.required_copies(folders("user"), "user"), {})
         (components / "a/classes/deck/interface.json").write_text('{"tampered": true}')
-        self.assertEqual(S.class_conflicts(components), ["a: class inventory digest differs for classes/deck/interface.json"])
+        self.assertEqual(S.class_conflicts(folders("a", "b", "user")), ["a: class inventory digest differs for classes/deck/interface.json"])
         manifest = json.loads((components / "b/component.json").read_text())
         manifest["classes"][0]["descriptor"]["provides"] = []
         manifest["classes"][0]["reference"]["digest"] = hashlib.sha256(canonical(manifest["classes"][0]["descriptor"])).hexdigest()
         (components / "b/component.json").write_text(json.dumps(manifest))
-        self.assertIn("conflicting class clodhub/deck-class 1.0.0: a, b", S.class_conflicts(components))
+        self.assertIn("conflicting class pkg:clod/com.clodhub/deck-class 1.0.0: a, b", S.class_conflicts(folders("a", "b", "user")))
 
 
 if __name__ == "__main__":

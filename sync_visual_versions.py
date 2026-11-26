@@ -3,7 +3,7 @@
 
 Usage: python3.12 -B tools/sync_visual_versions.py COMPONENT_DIR... [--check]
 Sets `version` in visual/definition.json and in every example's definition of this package, rewrites
-"at version X" in the descriptions, and renders each example to its outputs with aepm's diagram generator.
+"<name> ... at version X" and "to <title> X" in the descriptions, and renders each example to its outputs with clod's diagram generator.
 With --check nothing is written and the exit status is 1 when a file names another version.
 """
 import argparse
@@ -49,9 +49,14 @@ def sync(directory: Path, check: bool) -> list[str]:
     rewrite(directory / visual["definition"], fix_json)
     for example in visual["examples"]:
         rewrite(directory / example, fix_json)
-    short = name.split("/")[1]
+    short = name.rsplit("/", 1)[1]
+    title = json.loads((directory / visual["definition"]).read_text(encoding="utf-8"))["name"]
+
+    def fix_description(text):
+        text = re.sub(rf"(\b{re.escape(short)}\b[^.\n]*? at version )\d+\.\d+\.\d+", rf"\g<1>{version}", text)
+        return re.sub(rf"(\bto {re.escape(title)} )\d+\.\d+\.\d+", rf"\g<1>{version}", text)
     for description in visual["descriptions"]:
-        rewrite(directory / description, lambda t: re.sub(rf"(\b{re.escape(short)}\b[^.\n]*? at version )\d+\.\d+\.\d+", rf"\g<1>{version}", t))
+        rewrite(directory / description, fix_description)
     if not check and stale:
         for example in visual["examples"]:
             prefix = Path(example).stem

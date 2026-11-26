@@ -1,8 +1,8 @@
 #!/usr/bin/env python3.12
-"""Validate an aepm component directory against the component standard.
+"""Validate a clod component directory against the component standard.
 
 Usage: python3.12 -B tools/check_component.py components/NAME [--no-tests]
-       python3.12 -B tools/check_component.py --all [--no-tests]
+       python3.12 -B tools/check_component.py --all [--no-tests]   (every component in tools/library.json)
 Prints one JSON result {component, ok, errors, warnings, testsRun, testsPassed} (a table with --all).
 """
 
@@ -23,12 +23,11 @@ sys.dont_write_bytecode = True
 
 TOOLS_DIR = Path(__file__).resolve().parent
 ROOT = TOOLS_DIR.parent
-AEPM = Path(os.environ.get("AEPM_CHECKOUT", ROOT / "aepm"))
+CLOD = Path(os.environ.get("CLOD_CHECKOUT", ROOT / "clod"))
 STANDARD = ROOT / ".opencode" / "knowledge" / "component-standard.md"
-GENERATOR = AEPM / "aepm" / "diagram" / "generate.py"
+GENERATOR = CLOD / "clod" / "diagram" / "generate.py"
 TEMP_BASE = Path("/var/folders/yk/8tzc9b_1713dlhdp5vzkgg100000gn/T/opencode")
 PINNED_PYTHON = Path("/Users/george/.pyenv/versions/3.12.8/bin/python3.12")
-SOURCE_REVISION = "19905b75dbea89fbfd424d67fe26c81aaed0e018"
 PLATFORMS = {"server", "web", "apple", "android", "desktop"}
 TOP_PACKAGED = {"CONTRACT.md", "INSTRUCTIONS.md", "SOURCE.md", "LICENCE", "NOTICE", "suitability.json", "migration.json", "interfaces",
                  "examples", "implementation", "tests", "tools.lock.json", "visual", "classes", "notices", "PROVENANCE.md"}
@@ -53,10 +52,13 @@ KNOWN_JOBS = {"server-host", "data-store", "video", "hosting"}
 VALIDATOR = TOOLS_DIR / "standards" / "validate-interface.mjs"
 
 sys.path.insert(0, str(TOOLS_DIR))
+import library  # noqa: E402
 from sync_required_interfaces import class_conflicts, required_copies  # noqa: E402
-sys.path.insert(0, str(AEPM))
-from aepm import locks, space  # noqa: E402
-from aepm.model import AepmError, SCOPE  # noqa: E402
+sys.path.insert(0, str(CLOD))
+from clod import locks, space  # noqa: E402
+from clod.model import DEFAULT_NAMESPACE, MANIFEST_FORMAT, PACKAGE_PREFIX, ClodError, short_name  # noqa: E402
+# Interface types of the standard's table: `<namespace>/<name>` in the default namespace.
+TYPES = DEFAULT_NAMESPACE + "/"
 
 
 class Report:
@@ -106,7 +108,7 @@ def standard_table():
 
 
 def load_generator():
-    loader = importlib.util.spec_from_file_location("aepm_diagram_generate", GENERATOR)
+    loader = importlib.util.spec_from_file_location("clod_diagram_generate", GENERATOR)
     module = importlib.util.module_from_spec(loader)
     loader.loader.exec_module(module)
     return module
@@ -117,11 +119,11 @@ def clean_environment(home):
             "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "CI": "true"}
 
 
-def run_aepm(arguments, work):
+def run_clod(arguments, work):
     python = PINNED_PYTHON if PINNED_PYTHON.exists() else Path(sys.executable)
     environment = clean_environment(work)
-    environment["PYTHONPATH"] = str(AEPM)
-    result = subprocess.run([str(python), "-B", "-m", "aepm", *arguments], env=environment, cwd=work,
+    environment["PYTHONPATH"] = str(CLOD)
+    result = subprocess.run([str(python), "-B", "-m", "clod", *arguments], env=environment, cwd=work,
                             capture_output=True, text=True, timeout=300)
     try:
         return json.loads(result.stdout.strip().splitlines()[-1])
@@ -143,7 +145,7 @@ def walk_disk(directory, report):
             if entry == ".git" and relative == Path("."):
                 continue
             if entry == "node_modules":
-                report.warn(f"node_modules present (development dependencies, never packaged by aepm): {path}")
+                report.warn(f"node_modules present (development dependencies, never packaged by clod): {path}")
                 continue
             keep.append(entry)
         dirnames[:] = keep
@@ -193,7 +195,7 @@ def check_layout(directory, disk, manifest, report):
             continue
         if top not in TOP_PACKAGED:
             if path in listed:
-                continue  # listed in component.json and present: aepm packs it, so the layout accepts it
+                continue  # listed in component.json and present: clod packs it, so the layout accepts it
             unpackaged[top] = unpackaged.get(top, 0) + 1
             continue
         if path not in listed:
@@ -241,16 +243,19 @@ def check_documents(directory, manifest, report):
 
 def check_standard_fields(directory, manifest, report):
     identity = manifest["identity"]
-    if identity["name"] != f"{SCOPE}/{directory.name}":
+    if identity["name"] != f"{PACKAGE_PREFIX}{DEFAULT_NAMESPACE}/{directory.name}":
         report.error(f"identity.name {identity['name']!r} does not match directory {directory.name!r}")
     if manifest["kind"] != "component":
         report.warn(f"kind is {manifest['kind']!r}, expected 'component'")
-    if identity["sourceRevision"] != SOURCE_REVISION:
-        report.warn("identity.sourceRevision differs from the frozen McInPoker revision")
+    spec = directory / "authoring" / "spec.json"
+    if spec.is_file():
+        revision = read_json(spec).get("sourceRevision")
+        if identity["sourceRevision"] != revision:
+            report.warn(f"identity.sourceRevision {identity['sourceRevision']!r} differs from authoring/spec.json sourceRevision {revision!r}")
     if manifest["upgrade"] != {"migration": "files-only"}:
         report.warn(f"upgrade is {manifest['upgrade']}, standard says migration files-only")
-    if manifest["format"] != 3:
-        report.warn(f"manifest format {manifest['format']} (the package manifest format is 3)")
+    if manifest["format"] != MANIFEST_FORMAT:
+        report.warn(f"manifest format {manifest['format']} (the package manifest format is {MANIFEST_FORMAT})")
     for item in manifest["collect"]:
         if item.get("secret") and "default" in item:
             report.error(f"collect {item['id']!r}: secrets never have defaults")
@@ -269,7 +274,7 @@ def check_interfaces(directory, manifest, report):
     if not table:
         report.warn("could not read the interface table from the standard")
         return
-    provided_anywhere = {"ae/" + t for provides, _ in table.values() for t in provides}
+    provided_anywhere = {TYPES + t for provides, _ in table.values() for t in provides}
     name = directory.name
     row = table.get(name)
     if row is None:
@@ -277,7 +282,7 @@ def check_interfaces(directory, manifest, report):
     for key in ("provides", "requires"):
         for port in manifest[key]:
             last = port["type"].rsplit("/", 1)[-1]
-            if not port["type"].startswith("ae/") or port["type"] not in {"ae/" + t for p, r in table.values() for t in p | r}:
+            if not port["type"].startswith(TYPES) or port["type"] not in {TYPES + t for p, r in table.values() for t in p | r}:
                 report.warn(f"{key} type {port['type']!r} is not in the standard's interface table (addition: report it)")
             elif key == "requires" and port["type"] not in provided_anywhere:
                 report.warn(f"requires type {port['type']!r} is not provided by any component in the table")
@@ -303,11 +308,15 @@ def check_interfaces(directory, manifest, report):
             if result is not None and (result.get("type"), result.get("version")) != (port["type"], port["version"]):
                 report.error(f"{port['path']}: names {result.get('type')!r} {result.get('version')!r}, "
                              f"but the {key} entry {port['id']!r} is {port['type']!r} {port['version']!r}")
-    for path, expected in required_copies(ROOT / "components", directory.name).items():
+    # The library's components, and the checked one when it is not listed: required documents and classes come from these.
+    folders = library.components()
+    if directory.resolve() not in {folder.resolve() for folder in folders}:
+        folders.append(directory)
+    for path, expected in required_copies(folders, directory.name).items():
         current = directory / path
         if not current.is_file() or current.read_bytes() != expected:
             report.error(f"{path} is not a byte copy of its independent class document (run tools/sync_required_interfaces.py)")
-    for problem in class_conflicts(ROOT / "components", directory.name):
+    for problem in class_conflicts(folders, directory.name):
         report.error(problem)
     check_entry_modules(directory, manifest, documents, report, {port["path"] for port in manifest["provides"]})
 
@@ -321,7 +330,7 @@ KOTLIN_PUBLIC = r"(?m)^(?![ \t]*(?:private|internal|protected)\b)[ \t]*(?:(?:pub
 
 def entry_prefix(manifest):
     """Where the package's files land relative to the installed root: components/<short name>/ for a component, nothing for a recipe."""
-    return "" if manifest["kind"] == "recipe" else "components/" + manifest["identity"]["name"].split("/", 1)[1] + "/"
+    return "" if manifest["kind"] == "recipe" else "components/" + short_name(manifest["identity"]["name"]) + "/"
 
 
 def method_names(document, tag):
@@ -456,17 +465,17 @@ def check_json_documents(directory, manifest, report):
                 generator = generator or load_generator()
                 generator.validate_design(document)
             except Exception as error:
-                report.error(f"{path}: rejected by aepm's diagram generator ({error})")
+                report.error(f"{path}: rejected by clod's diagram generator ({error})")
     definition_path = directory / manifest["visual"]["definition"]
     if definition_path.is_file():
         definition = load_json(definition_path, manifest["visual"]["definition"], report)
         if isinstance(definition, dict):
             if manifest["kind"] == "component" and (definition.get("package") != manifest["identity"]["name"] or definition.get("version") != manifest["identity"]["version"]):
-                report.error("visual/definition.json package or version differs from the manifest identity (aepm install refuses it: diagram-version)")
+                report.error("visual/definition.json package or version differs from the manifest identity (clod install refuses it: diagram-version)")
             ports = {(p.get("id"), p.get("type"), p.get("version")) for p in definition.get("ports", [])}
             wanted = {(p["id"], p["type"], p["version"]) for p in manifest["provides"] + manifest["requires"]}
             if ports != wanted:
-                report.error("visual/definition.json ports differ from the manifest provides/requires (aepm install refuses it: diagram-interface)")
+                report.error("visual/definition.json ports differ from the manifest provides/requires (clod install refuses it: diagram-interface)")
 
 
 def validate_suitability(document, report):
@@ -635,8 +644,8 @@ def check_sidecars(directory, manifest, report):
 def tool_executable(tool):
     if tool == "python3" and sys.version_info[:2] == (3, 12):
         return Path(sys.executable)
-    sys.path.insert(0, str(AEPM))
-    from aepm.host_tools import host_tool
+    sys.path.insert(0, str(CLOD))
+    from clod.host_tools import host_tool
     return host_tool(tool)
 
 
@@ -709,7 +718,7 @@ def check_suites(directory, manifest, run_tests, report, work, allow_network=Fal
                 held.enter_context(space.reserve(work, copy_bytes + installs * space.NPM_INSTALL, purpose=f"check {directory.name} {suite['id']}"))
                 for kind in locks.kinds_for(suite):
                     held.enter_context(locks.heavy(kind, purpose=f"check {directory.name} {suite['id']}"))
-            except AepmError as error:
+            except ClodError as error:
                 report.error(f"suite {suite['id']!r}: {error.code}: {json.dumps(error.document().get('detail'))}")
                 return total_run, total_passed
             (home / "bin").mkdir(parents=True)
@@ -776,7 +785,7 @@ def check_component(directory, run_tests=True, allow_network=False):
     if not TEMP_BASE.is_dir():
         report.error(f"temporary base {TEMP_BASE} is missing")
         return result
-    work = Path(tempfile.mkdtemp(prefix="check-component-", dir=TEMP_BASE)).resolve()  # /var is a symlink; aepm refuses links
+    work = Path(tempfile.mkdtemp(prefix="check-component-", dir=TEMP_BASE)).resolve()  # /var is a symlink; clod refuses links
     try:
         disk = walk_disk(directory, report)
         check_secrets(directory, disk, report)
@@ -786,16 +795,16 @@ def check_component(directory, run_tests=True, allow_network=False):
             if not manifest_path.is_file():
                 report.error("component.json missing")
         else:
-            outcome = run_aepm(["pack", str(directory), "--store", str(work / "store")], work)
+            outcome = run_clod(["pack", str(directory), "--store", str(work / "store")], work)
             if not outcome.get("ok"):
                 error = outcome.get("error", {})
-                report.error(f"aepm pack refused: {error.get('code')} at {error.get('path')}")
+                report.error(f"clod pack refused: {error.get('code')} at {error.get('path')}")
             else:
                 ref = outcome["result"]
-                inspected = run_aepm(["inspect", ref["digest"], "--store", str(work / "store")], work)
+                inspected = run_clod(["inspect", ref["digest"], "--store", str(work / "store")], work)
                 if not inspected.get("ok"):
                     error = inspected.get("error", {})
-                    report.error(f"aepm inspect refused: {error.get('code')} at {error.get('path')}")
+                    report.error(f"clod inspect refused: {error.get('code')} at {error.get('path')}")
                 else:
                     packed = inspected["result"]
                     if packed["identity"]["sourceTreeDigest"] == "0" * 64:
@@ -827,7 +836,7 @@ def main(argv=None):
     parser.add_argument("directory", nargs="?")
     parser.add_argument("--no-tests", action="store_true")
     parser.add_argument("--allow-network", action="store_true", help="allow declared network preparation steps")
-    parser.add_argument("--all", action="store_true", help="check every directory under components/ and print a table")
+    parser.add_argument("--all", action="store_true", help="check every component in tools/library.json and print a table")
     arguments = parser.parse_args(argv)
     if arguments.all == bool(arguments.directory):
         parser.error("give exactly one of DIRECTORY or --all")
@@ -835,8 +844,7 @@ def main(argv=None):
         result = check_component(Path(arguments.directory), not arguments.no_tests, arguments.allow_network)
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0 if result["ok"] else 1
-    results = [check_component(path, not arguments.no_tests, arguments.allow_network)
-               for path in sorted((ROOT / "components").iterdir()) if path.is_dir() and not path.name.startswith(".")]
+    results = [check_component(path, not arguments.no_tests, arguments.allow_network) for path in library.components()]
     width = max([len(r["component"]) for r in results] + [9])
     print(f"{'component'.ljust(width)}  ok     errors  warnings  tests")
     for r in results:

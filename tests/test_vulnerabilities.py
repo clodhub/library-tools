@@ -1,4 +1,5 @@
 import io
+import os
 from pathlib import Path
 import sys
 import unittest
@@ -37,6 +38,17 @@ class FakeOsv:
 
 def manifest(purls, waivers=()):
     return {"upstream": [{"purl": purl} for purl in purls], "vulnerabilityWaivers": [{"id": key, "reason": "not reachable"} for key in waivers]}
+
+
+class LiveOsv(unittest.TestCase):
+    """A scoped npm package, its scope written both ways, against api.osv.dev."""
+
+    @unittest.skipUnless(os.environ.get("OSV_LIVE"), "set OSV_LIVE=1 to query api.osv.dev")
+    def test_osv_answers_an_npm_scope_in_either_form(self):
+        for purl in ("pkg:npm/%40babel/traverse@7.22.0", "pkg:npm/@babel/traverse@7.22.0"):
+            with self.subTest(purl=purl):
+                self.assertEqual(vulnerabilities.advisories([purl]), {"GHSA-67hx-6x53-jw92": [purl]})
+        self.assertEqual(vulnerabilities.advisories(["pkg:npm/%40babel/traverse@7.23.2", "pkg:npm/@babel/traverse@7.23.2"]), {})
 
 
 class Vulnerabilities(unittest.TestCase):

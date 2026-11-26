@@ -1,5 +1,5 @@
 #!/usr/bin/env python3.12
-"""Scaffold an aepm component from an authoring spec and what is on disk.
+"""Scaffold a clod component from an authoring spec and what is on disk.
 
 Usage: python3.12 -B tools/scaffold_component.py components/NAME --spec components/NAME/authoring/spec.json [--render] [--force]
 """
@@ -17,13 +17,14 @@ sys.dont_write_bytecode = True
 
 TOOLS_DIR = Path(__file__).resolve().parent
 ROOT = TOOLS_DIR.parent
-AEPM = Path(os.environ.get("AEPM_CHECKOUT", ROOT / "aepm"))
+CLOD = Path(os.environ.get("CLOD_CHECKOUT", ROOT / "clod"))
 STANDARD = ROOT / ".opencode" / "knowledge" / "component-standard.md"
-GENERATOR = AEPM / "aepm" / "diagram" / "generate.py"
+GENERATOR = CLOD / "clod" / "diagram" / "generate.py"
 DOT_DIR = "/opt/homebrew/bin"
-SOURCE_REVISION = "19905b75dbea89fbfd424d67fe26c81aaed0e018"
+# The GitHub owner of the library's namespace, com.clodhub.
+OWNER = "clodhub"
 PLATFORMS = ("server", "web", "apple", "android", "desktop")
-SPEC_KEYS = {"name", "version", "title", "description", "facilities", "provides", "requires", "collect", "dependencies",
+SPEC_KEYS = {"name", "version", "sourceRevision", "title", "description", "facilities", "provides", "requires", "collect", "dependencies",
              "suites", "tools", "platforms", "text", "agentInstructions", "developerInstructions", "suitability",
                "migration", "keepsData", "infrastructure", "modules", "licence", "licenceFile", "noticeFile",
                "supportedPlatforms", "toolchains", "templates", "classes", "implements", "upstream", "compatibility", "maintenance",
@@ -33,8 +34,8 @@ SKIPPED_ANYWHERE = {".DS_Store", "__pycache__"}
 UNPACKAGED_TOP = {".git", ".gitignore", ".gitattributes", ".opencode", "authoring", "releases", "component.json", "AGENTS.md"}
 DEFAULT_INFRASTRUCTURE = "No deployed service; injected resources and local library functions only."
 
-sys.path.insert(0, str(AEPM))
-from aepm import model  # noqa: E402  (authority for manifest validation)
+sys.path.insert(0, str(CLOD))
+from clod import model  # noqa: E402  (authority for manifest validation)
 
 
 class ScaffoldError(Exception):
@@ -43,6 +44,11 @@ class ScaffoldError(Exception):
 
 def fail(message):
     raise ScaffoldError(message)
+
+
+def package_name(name):
+    """The package name of a library component: pkg:clod/com.clodhub/<name>."""
+    return f"{model.PACKAGE_PREFIX}{model.DEFAULT_NAMESPACE}/{name}"
 
 
 def title(value):
@@ -85,13 +91,14 @@ def load_spec(path, directory):
     if unknown:
         fail(f"unknown spec fields: {sorted(unknown)}")
     name = text_of(spec.get("name"), "name")
-    if not re.fullmatch(r"[a-z][a-z0-9-]*", name):
-        fail("spec.name must match [a-z][a-z0-9-]*")
+    if model.parse_package(package_name(name)) is None or model.kind_of(name) != "component":
+        fail("spec.name must be a component name: a letter, then letters, digits and single hyphens, not ending in -class or -recipe")
     if name != directory.name:
         fail(f"spec.name {name!r} differs from directory name {directory.name!r}")
     version = text_of(spec.get("version"), "version")
     if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version):
         fail("spec.version must be three integers")
+    text_of(spec.get("sourceRevision"), "sourceRevision")
     spec["title"] = text_of(spec.get("title", title(name)), "title")
     text_of(spec.get("description"), "description")
     for item in list_of(spec.get("facilities"), "facilities", True):
@@ -130,7 +137,7 @@ def load_spec(path, directory):
         if platform not in PLATFORMS:
             fail(f"unknown platform {platform!r}; expected one of {PLATFORMS}")
     spec["platforms"] = platforms
-    from aepm.foundations import PLATFORMS as supported_targets
+    from clod.foundations import PLATFORMS as supported_targets
     targets = list_of(spec.get("supportedPlatforms"), "supportedPlatforms", True)
     if any(type(target) is not str or target not in supported_targets for target in targets) or len(set(targets)) != len(targets):
         fail("spec.supportedPlatforms must name unique supported targets")
@@ -161,7 +168,7 @@ def load_spec(path, directory):
                 fail(f"spec.{field} must name a file within the component")
             if not candidate.read_text(encoding="utf-8").strip():
                 fail(f"spec.{field} must name a nonempty document")
-    except model.AepmError as error:
+    except model.ClodError as error:
         fail(str(error))
     return spec
 
@@ -277,8 +284,8 @@ def visual_definition(spec):
         if "default" in item:
             entry["default"] = item["default"]
         settings.append(entry)
-    return {"id": f"{model.SCOPE}.{name}", "name": spec["title"], "kind": "component", "status": "example",
-            "package": f"{model.SCOPE}/{name}", "version": spec["version"], "ports": ports, "settings": settings}
+    return {"id": model.package_id(package_name(name)), "name": spec["title"], "kind": "component", "status": "example",
+            "package": package_name(name), "version": spec["version"], "ports": ports, "settings": settings}
 
 
 def connected_example(spec, definition):
@@ -313,14 +320,14 @@ def connected_example(spec, definition):
 
 
 def load_generator():
-    loader = importlib.util.spec_from_file_location("aepm_diagram_generate", GENERATOR)
+    loader = importlib.util.spec_from_file_location("clod_diagram_generate", GENERATOR)
     module = importlib.util.module_from_spec(loader)
     loader.loader.exec_module(module)
     return module
 
 
 def render(design_path, output_dir):
-    environment = {"PATH": DOT_DIR + os.pathsep + os.defpath, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(AEPM),
+    environment = {"PATH": DOT_DIR + os.pathsep + os.defpath, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(CLOD),
                    "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "HOME": os.environ.get("HOME", "/")}
     result = subprocess.run([sys.executable, "-B", str(GENERATOR), str(design_path), "--output-prefix", str(output_dir / "connected")],
                             env=environment, capture_output=True, text=True, timeout=120)
@@ -360,7 +367,8 @@ def settings_lines(spec):
         if item["secret"]:
             flags.append("secret, supplied only by reference")
         if "default" in item:
-            flags.append(f"default `{item['default']}`")
+            value = item["default"]
+            flags.append(f"default `{value if type(value) is str else json.dumps(value, ensure_ascii=False)}`")
         lines.append(f"- `{item['id']}` ({kind}; {'; '.join(flags)})")
     return lines
 
@@ -408,7 +416,7 @@ def instructions_md(spec, suites):
     name = spec["name"]
     out = [f"# {spec['title']} instructions", "", "## For the agent",
            spec.get("agentInstructions") or todo("what the agent selects, configures and connects"), "",
-           f"- Select package `{model.SCOPE}/{name}` version `{spec['version']}`."]
+           f"- Select package `{package_name(name)}` version `{spec['version']}`."]
     settings = settings_lines(spec)
     out += ["- Settings to configure:", *[f"  {line}" for line in settings]] if settings else ["- No installer settings."]
     for port in spec["provides"]:
@@ -420,12 +428,12 @@ def instructions_md(spec, suites):
     out += ["", "## For the developer", spec.get("developerInstructions") or todo("what the developer supplies and how to adapt it"), "",
             "## How to check", "From the component directory:", ""]
     out += [f"- {line}" for line in tool_commands(suites)]
-    out += [f"- `python3 -m aepm review <digest> --store STORE --policy POLICY --trusted --allow-network` runs the packaged checks."]
+    out += [f"- `python3 -m clod review <digest> --store STORE --policy POLICY --trusted --allow-network` runs the packaged checks."]
     return "\n".join(out) + "\n"
 
 
-def source_md(implementation):
-    out = ["# Source mapping", "", f"Reference revision: `{SOURCE_REVISION}`.", ""]
+def source_md(spec, implementation):
+    out = ["# Source mapping", "", f"Reference revision: `{spec['sourceRevision']}`.", ""]
     out += [f"- `{path}` <- TODO: OurPoker/recipe file and line ranges; what was generalised; what was left behind." for path in implementation]
     if not implementation:
         out.append("- TODO: record the source of each file.")
@@ -439,7 +447,7 @@ def default_suitability(spec):
 
 def agents_md(spec):
     name = spec["name"]
-    return (f"# {name}\n\nRepository: `{model.SCOPE}/{name}`. Read `.opencode/knowledge/00-index.md` and `workflow.md` before work.\n"
+    return (f"# {name}\n\nRepository: `{OWNER}/{name}`. Read `.opencode/knowledge/00-index.md` and `workflow.md` before work.\n"
              f"Licence: {spec['licence']} (`{spec['licenceFile']}`, `{spec['noticeFile']}`).\n"
              "The class contracts and package manifest define the public interfaces and verification checks.\n")
 
@@ -447,12 +455,12 @@ def agents_md(spec):
 def index_md(spec, implementation):
     name = spec["name"]
     code = ", ".join(f"`{p}`" for p in implementation) or "none yet"
-    return (f"# {name} ownership\n\nRepository: https://github.com/{model.SCOPE}/{name}.git.\n"
+    return (f"# {name} ownership\n\nRepository: https://github.com/{OWNER}/{name}.git.\n"
              f"Current code: {code}.\n"
              "`component.json`, `tools.lock.json` and `visual/` are generated from `authoring/spec.json`. "
              "Licence documents belong to their respective authors and are included as supplied. "
              f"`CONTRACT.md`, `INSTRUCTIONS.md` and `SOURCE.md` are hand-written and kept on regeneration.\n"
-            f"Every artefact installs under `components/{name}/`, which aepm places at `components/<slot id>/` of the application; "
+            f"Every artefact installs under `components/{name}/`, which clod places at `components/<slot id>/` of the application; "
             f"other code reaches this component only through the entry modules in each interface document's `x-clodhub-modules` "
             f"(paths relative to the component root; set by the scaffolder from `spec.modules`, or from `implementation/<platform>/index.ts` "
             f"and the native source folders).\n")
@@ -462,11 +470,11 @@ def workflow_md(spec, suites):
     name = spec["name"]
     commands = "; ".join(f"`{' '.join(s['argv'])}`" for s in suites)
     return ("# Local workflow\n\n"
-             f"Repository: `{model.SCOPE}/{name}`. "
+             f"Repository: `{OWNER}/{name}`. "
              f"Licence: `{spec['licence']}` (`{spec['licenceFile']}`, `{spec['noticeFile']}`).\n"
              f"Suite commands from the package root: {commands}.\n"
-             "Pack: `python3 -B -m aepm pack . --store STORE`. "
-             "Review: `python3 -B -m aepm review DIGEST --store STORE --policy POLICY --trusted --allow-network`.\n"
+             "Pack: `python3 -B -m clod pack . --store STORE`. "
+             "Review: `python3 -B -m clod review DIGEST --store STORE --policy POLICY --trusted --allow-network`.\n"
              "Always run Python with `-B`; never write bytecode into the repository.\n")
 
 
@@ -500,8 +508,8 @@ def build_manifest(spec, files, suites):
             ports[key].append(entry)
     infra = spec["infrastructure"]
     manifest = {
-        "format": 3, "kind": "component",
-        "identity": {"name": f"{model.SCOPE}/{name}", "version": spec["version"], "sourceRevision": SOURCE_REVISION,
+        "format": model.MANIFEST_FORMAT, "kind": "component",
+        "identity": {"name": package_name(name), "version": spec["version"], "sourceRevision": spec["sourceRevision"],
                       "sourceTreeDigest": "0" * 64, "licence": spec["licence"]},
         "facilities": spec["facilities"],
         "documents": {"contract": "CONTRACT.md", "interfaces": interface_docs, "examples": examples, "licenceNotice": spec["licenceFile"]},
@@ -577,7 +585,7 @@ def scaffold(directory, spec_path, do_render, force):
     try:
         load_generator().validate_design(design)
     except Exception as error:
-        fail(f"visual design rejected by aepm's diagram generator: {error}")
+        fail(f"visual design rejected by clod's diagram generator: {error}")
     writer.put("visual/definition.json", dump(definition))
     writer.put("visual/examples/connected.json", dump(design))
 
@@ -588,7 +596,7 @@ def scaffold(directory, spec_path, do_render, force):
     writer.put("CONTRACT.md", contract_md(spec, [{"source": p, "destination": "components/{0}/{1}/{2}".format(
         spec["name"], p.split("/")[1], "/".join(p.split("/")[2:]))} for p in implementation if len(p.split("/")) >= 3], suites), protect=True)
     writer.put("INSTRUCTIONS.md", instructions_md(spec, suites), protect=True)
-    writer.put("SOURCE.md", source_md(implementation), protect=True)
+    writer.put("SOURCE.md", source_md(spec, implementation), protect=True)
     writer.put("AGENTS.md", agents_md(spec), protect=True)
     writer.put(".opencode/knowledge/00-index.md", index_md(spec, implementation), protect=True)
     writer.put(".opencode/knowledge/workflow.md", workflow_md(spec, suites), protect=True)
@@ -609,8 +617,8 @@ def scaffold(directory, spec_path, do_render, force):
     notes.extend(warnings)
     try:
         model.validate_component(manifest)
-    except model.AepmError as error:
-        fail(f"manifest rejected by aepm model.validate_component: {error.code} at {error.path}")
+    except model.ClodError as error:
+        fail(f"manifest rejected by clod model.validate_component: {error.code} at {error.path}")
     writer.put("component.json", model.canonical(manifest).decode("utf-8"))
     return writer.log, notes, manifest
 

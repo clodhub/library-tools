@@ -54,16 +54,17 @@ class ImageUploads(unittest.TestCase):
 
 class Pins(unittest.TestCase):
     def test_slots_and_job_candidates_are_pins(self):
-        recipe = {"components": [{"id": "theme", "preferred": {"name": "a/theme", "version": "1.0.0"}},
-                                 {"id": "host", "preferred": {"name": "a/host", "version": "2.0.0"}}],
-                  "jobs": [{"id": "hosting", "slot": "host", "candidates": [{"component": "a/host"}, {"component": "a/other-host", "version": "3.1.0"}]}]}
-        self.assertEqual(publisher.pinned_components(recipe), {"a/theme": "1.0.0", "a/host": "2.0.0", "a/other-host": "3.1.0"})
+        theme, host, other = ("pkg:clod/com.clodhub/" + name for name in ("theme", "host", "other-host"))
+        recipe = {"components": [{"id": "theme", "preferred": {"name": theme, "version": "1.0.0"}},
+                                 {"id": "host", "preferred": {"name": host, "version": "2.0.0"}}],
+                  "jobs": [{"id": "hosting", "slot": "host", "candidates": [{"component": host}, {"component": other, "version": "3.1.0"}]}]}
+        self.assertEqual(publisher.pinned_components(recipe), {theme: "1.0.0", host: "2.0.0", other: "3.1.0"})
 
 
 class Classes(unittest.TestCase):
-    def test_each_carried_class_descriptor_is_a_format_2_body(self):
-        descriptor = {"format": 2, "name": "a/theme-class", "version": "1.0.0"}
-        self.assertEqual(publisher.class_bodies({"classes": [{"reference": {}, "descriptor": descriptor}]}), [{"format": 2, "class": descriptor}])
+    def test_each_carried_class_descriptor_is_a_format_3_body(self):
+        descriptor = {"format": 3, "name": "pkg:clod/com.clodhub/theme-class", "version": "1.0.0"}
+        self.assertEqual(publisher.class_bodies({"classes": [{"reference": {}, "descriptor": descriptor}]}), [{"format": 3, "class": descriptor}])
 
 
 class Certified(unittest.TestCase):
@@ -72,7 +73,7 @@ class Certified(unittest.TestCase):
             key = Path(folder) / "other.pem"
             subprocess.run(["openssl", "genpkey", "-algorithm", "ed25519", "-out", str(key)], check=True, capture_output=True)
             self.assertFalse(publisher.certified(key))
-        level_n = Path.home() / ".config/ourapps/keys/guardian.pem"
+        level_n = Path.home() / ".config/clodhub/keys/guardian.pem"
         if level_n.is_file():
             self.assertTrue(publisher.certified(level_n))
 

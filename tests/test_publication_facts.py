@@ -13,8 +13,8 @@ class PublicationFactsTests(unittest.TestCase):
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory(dir=publisher.TEMP)
         cls.store = Path(cls.temp.name).resolve() / "store"
-        cls.directory = publisher.ROOT / "components" / "theme"
-        _, bundle, _, _, _ = publisher.load_aepm()
+        cls.directory = next(path for path in publisher.library.components() if path.name == "theme")
+        _, bundle, _, _, _ = publisher.load_clod()
         cls.ref = bundle.pack(cls.directory, cls.store)
 
     @classmethod
@@ -34,7 +34,7 @@ class PublicationFactsTests(unittest.TestCase):
         self.assertEqual(set(entry["targets"]["client"]), set(manifest["platforms"]) - {"server"})
 
     def test_outer_identity_and_digest_cannot_substitute_another_archive(self):
-        for field, value in (("name", "clodhub/not-theme"), ("digest", "0" * 64)):
+        for field, value in (("name", "pkg:clod/com.clodhub/not-theme"), ("digest", "0" * 64)):
             ref = {**self.ref, field: value}
             with self.subTest(field=field), self.assertRaises(Exception):
                 publisher.verified_package(ref, self.store)
@@ -60,8 +60,8 @@ class PublicationFactsTests(unittest.TestCase):
         settings = publisher.settings_of(manifest)
         self.assertEqual([setting["hasDefault"] for setting in settings], [False, True, True, True])
         self.assertEqual([setting.get("default", "absent") for setting in settings], ["absent", False, 0, ""])
-        ports = [{"id": "example", "type": "ae/example", "version": "1.0.0", "optional": True, "path": "x.json"}]
-        payloads = {"x.json": b'{"openrpc": "1.3.2", "info": {"title": "ae/example", "version": "1.0.0", "description": " An example. "}}'}
+        ports = [{"id": "example", "type": "com.clodhub/example", "version": "1.0.0", "optional": True, "path": "x.json"}]
+        payloads = {"x.json": b'{"openrpc": "1.3.2", "info": {"title": "com.clodhub/example", "version": "1.0.0", "description": " An example. "}}'}
         self.assertTrue(publisher.ports(ports, payloads, True)[0]["optional"])
         self.assertNotIn("optional", publisher.ports(ports, payloads)[0])
         self.assertEqual(publisher.ports(ports, payloads)[0]["description"], "An example.")

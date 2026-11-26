@@ -4,8 +4,8 @@
 //   OpenAPI 3.1   (key "openapi")   @apidevtools/swagger-parser validate
 //   AsyncAPI 3.1  (key "asyncapi")  @asyncapi/parser (errors only; warnings printed)
 //   JSON Schema 2020-12 (key "$schema" https://json-schema.org/draft/2020-12/schema)  ajv 2020 strict compile
-// Every document also names its interface: OpenRPC/OpenAPI/AsyncAPI info.title "ae/<name>" and info.version;
-// JSON Schema "title" "ae/<name>" and "x-version". Prints one JSON line per file; exit 1 when any file fails.
+// Every document also names its interface: OpenRPC/OpenAPI/AsyncAPI info.title "<namespace>/<name>" and info.version;
+// JSON Schema "title" "<namespace>/<name>" and "x-version". Prints one JSON line per file; exit 1 when any file fails.
 // Usage: node validate-interface.mjs FILE...
 import { readFileSync } from "node:fs";
 import { validateOpenRPCDocument } from "@open-rpc/schema-utils-js";
@@ -14,14 +14,25 @@ import { Parser } from "@asyncapi/parser";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
-const TYPE = /^ae\/[a-z][a-z0-9-]*$/;
+// An interface type by papers/package-urls.md: a lower-case reverse-domain namespace of at most 100 characters, "/", and
+// a name of 2 to 64 characters that is not "search".
+const LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+const NAMESPACE = new RegExp(`^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.${LABEL})+$`);
+const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const TYPE = /^([^/@?#%]+)\/([^/@?#%]+)$/;
 const VERSION = /^\d+\.\d+\.\d+$/;
+
+export function isInterfaceType(value) {
+  const match = TYPE.exec(value);
+  return match !== null && match[1].length <= 100 && NAMESPACE.test(match[1]) && match[2].length >= 2 && match[2].length <= 64
+    && NAME.test(match[2]) && match[2] !== "search";
+}
 
 function identity(doc, kind) {
   const title = kind === "jsonschema" ? doc.title : doc.info?.title;
   const version = kind === "jsonschema" ? doc["x-version"] : doc.info?.version;
   const errors = [];
-  if (!TYPE.test(String(title ?? ""))) errors.push(`title must be the interface type ae/<name>, got ${JSON.stringify(title)}`);
+  if (!isInterfaceType(String(title ?? ""))) errors.push(`title must be the interface type <namespace>/<name>, got ${JSON.stringify(title)}`);
   if (!VERSION.test(String(version ?? ""))) errors.push(`version must be three integers, got ${JSON.stringify(version)}`);
   return { type: title, version, errors };
 }

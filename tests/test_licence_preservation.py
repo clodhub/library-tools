@@ -22,13 +22,13 @@ class LicencePreservationTests(unittest.TestCase):
         (self.root / "LICENCE").write_text(self.licence)
         (self.root / "NOTICE").write_text(self.notice)
         self.spec = {
-            "name": "example", "version": "1.0.0", "description": "Example library",
+            "name": "example", "version": "1.0.0", "sourceRevision": "example-1.0.0", "description": "Example library",
             "facilities": [{"id": "example", "description": "Example library"}],
             "suites": [{"id": "test", "argv": ["node", "--test", "tests/example.mjs"]}],
             "licence": "MIT", "licenceFile": "LICENCE", "noticeFile": "NOTICE",
         }
-        aepm = Path(os.environ.get("AEPM_CHECKOUT", Path(__file__).resolve().parents[2] / "aepm"))
-        example = json.loads((aepm / "examples/counter/component.json").read_text())
+        clod = Path(os.environ.get("CLOD_CHECKOUT", Path(__file__).resolve().parents[2] / "clod"))
+        example = json.loads((clod / "examples/counter/component.json").read_text())
         self.spec.update(supportedPlatforms=example["platforms"], templates=[])
         for field in ("toolchains", "classes", "implements", "upstream", "compatibility", "maintenance", "release", "images", "vulnerabilityWaivers"):
             self.spec[field] = example[field]
@@ -54,6 +54,14 @@ class LicencePreservationTests(unittest.TestCase):
         report = checker.Report()
         checker.check_documents(self.root, manifest, report)
         self.assertEqual(report.errors, [])
+
+    def test_setting_defaults_are_written_as_json_values(self):
+        self.spec["collect"] = [{"id": key, "type": kind, "grammar": grammar, "required": False, "secret": False, "default": value}
+                                for key, kind, grammar, value in (("on", "boolean", "boolean", True), ("off", "boolean", "boolean", False),
+                                                                  ("count", "integer", "integer", 5), ("name", "string", "slug", "night"))]
+        lines = scaffold.settings_lines(self.load())
+        self.assertEqual(lines, ["- `on` (boolean; optional; default `true`)", "- `off` (boolean; optional; default `false`)",
+                                 "- `count` (integer; optional; default `5`)", "- `name` (string, slug; optional; default `night`)"])
 
     def test_licence_paths_cannot_escape_the_package(self):
         self.spec["licenceFile"] = "../outside"

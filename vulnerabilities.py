@@ -1,8 +1,8 @@
 """Known vulnerabilities in a package's upstream code, from OSV (https://osv.dev).
 
 Every upstream record of a package manifest carries the exact purl of what the package bundles or downloads. Those purls are
-queried with OSV's batch API; an advisory that affects one of them refuses publication unless the manifest's
-`vulnerabilityWaivers` names it with a reason.
+queried with OSV's batch API, as written; OSV answers an npm scope in either form, `%40scope` (canonical) or `@scope`. An
+advisory that affects one of them refuses publication unless the manifest's `vulnerabilityWaivers` names it with a reason.
 
     python3.12 -B tools/vulnerabilities.py components/NAME [...]     (prints the advisories; exit 1 when any is not waived)
 """

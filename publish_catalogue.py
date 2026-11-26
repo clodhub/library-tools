@@ -1,25 +1,26 @@
 #!/usr/bin/env python3.12
-"""Pack every component and the recipe, sign and review each, release it on GitHub, and publish it to clodhub.com.
+"""Pack every component and recipe in tools/library.json, sign and review each, release it on GitHub, and publish it to
+clodhub.com.
 
-usage: PYTHONPATH=aepm python3.12 -B tools/publish_catalogue.py --key ch_... --release-key PEM --guardian-key PEM
+usage: PYTHONPATH=clod python3.12 -B tools/publish_catalogue.py --key ch_... --release-key PEM --guardian-key PEM
                                                                [--only name ...] [--dry-run] [--entries-only]
 
 All packages are packed into one temporary store, so each review finds its dependencies. For each package:
-the Level N release attestation (`--release-key`); `aepm review --trusted --allow-network` under a policy that pins
+the Level N release attestation (`--release-key`); `clod review --trusted --allow-network` under a policy that pins
 the Level N keys and trusts the package and its dependencies; publishing stops unless required-local passed; the
 guardian verification summary (`--guardian-key`); the CycloneDX 1.6 bill of materials. A GitHub release `v<version>`
-on clodhub/<repo> (gh, keyring login) carries `<name>-<version>.tar`, `.cdx.json`, `.release.dsse.json`,
+on clodhub/<name> (gh, keyring login) carries `<name>-<version>.tar`, `.cdx.json`, `.release.dsse.json`,
 `.guardian.dsse.json`, `.review.json` and, when the review report names retained documents (execution evidence, contexts,
 authorizations), `.evidence.tar` holding them at their store-relative paths; an existing release gets the assets it lacks, after its archive is checked
 to be the same bytes. Then, with the API key (the catalogue's "Catalogue publish API"): classes/categories.json once, and per
 package its example images with a 480-pixel-wide WebP thumbnail each, the class it implements (once per class version) and its
-entry (component format 3, recipe format 2) with its release channel, images, vulnerability waivers and quality. Quality is `reviewed` (certified when the
+entry (component format 4, recipe format 3) with its release channel, images, vulnerability waivers and quality. Quality is `reviewed` (certified when the
 guardian key is Level N's) and, once the recipe is published, `integration-tested` for every component version the recipe pins.
 A component entry's page text comes from the archive's CONTRACT.md, its interface descriptions from the interface documents.
 With --entries-only, every listed version of each component is published again as an entry in the current format, from the
 archive on its GitHub release (checked against the catalogue's digest): nothing is signed, reviewed or uploaded, and the
 catalogue keeps each version's quality.
-AEPM_CHECKOUT names the aepm checkout to use (default: the workspace's aepm/).
+CLOD_CHECKOUT names the clod checkout to use (default: the workspace's clod/).
 """
 import argparse
 import hashlib
@@ -35,20 +36,26 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-AEPM = Path(os.environ.get("AEPM_CHECKOUT", ROOT / "aepm"))
+CLOD = Path(os.environ.get("CLOD_CHECKOUT", ROOT / "clod"))
 TEMP = Path("/private/var/folders/yk/8tzc9b_1713dlhdp5vzkgg100000gn/T/opencode")
 PY = "/Users/george/.pyenv/versions/3.12.8/bin/python3.12"
 ORIGIN = "https://clodhub.com"
+# The GitHub owner of the com.clodhub namespace.
 ORG = "clodhub"
-USER_AGENT = f"aepm-publish/1.0 (+{ORIGIN})"
+USER_AGENT = f"clod-publish/1 (+{ORIGIN})"
+# The publish bodies: recipe entries and classes, and component entries.
+ENTRY_FORMAT = 3
+COMPONENT_ENTRY_FORMAT = 4
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import library  # noqa: E402
 
 def run(argv, **kw):
     return subprocess.run(argv, check=True, capture_output=True, text=True, **kw)
 
 
-def load_aepm():
-    sys.path.insert(0, str(AEPM))
-    from aepm import bom, bundle, model, trust, verification
+def load_clod():
+    sys.path.insert(0, str(CLOD))
+    from clod import bom, bundle, model, trust, verification
     return bom, bundle, model, trust, verification
 
 
@@ -60,14 +67,14 @@ def public_key(private_key):
 
 def pack_all(directories):
     """Pack every package into one store; return the store and name -> ref."""
-    _, bundle, _, _, _ = load_aepm()
+    _, bundle, _, _, _ = load_clod()
     store = Path(tempfile.mkdtemp(prefix="publish-", dir=TEMP)).resolve() / "store"
     return store, {name: bundle.pack(directory, store) for name, directory in directories.items()}
 
 
 def sign_and_review(store, ref, release_key, guardian_key, work):
     """Release attestation, trusted review, guardian summary and bill of materials for one stored archive."""
-    bom, bundle, model, trust, verification = load_aepm()
+    bom, bundle, model, trust, verification = load_clod()
     binding = trust.review_bindings(ref, store)
     for item in binding["packages"]:
         dependency = {key: item[key] for key in ("name", "version", "digest")}
@@ -95,7 +102,7 @@ def sign_and_review(store, ref, release_key, guardian_key, work):
     files = {"tar": store / "objects" / (ref["digest"] + ".tar"), "cdx.json": bom_path,
              "release.dsse.json": statements / "release.dsse.json", "guardian.dsse.json": statements / "guardian.dsse.json",
              "review.json": store / "reports" / (report_digest + ".json")}
-    from aepm.evidence import pack_evidence
+    from clod.evidence import pack_evidence
     evidence = pack_evidence(store, report)  # refuses a report that names a document missing from the store
     if evidence is not None:
         files["evidence.tar"] = work / f"{ref['digest']}.evidence.tar"
@@ -119,7 +126,7 @@ def release(repo, tag, base, files, digest, title, work):
     view = gh("release", "view", tag, "--repo", f"{ORG}/{repo}", "--json", "assets")
     if view.returncode != 0:
         done = gh("release", "create", tag, *map(str, staged.values()), "--repo", f"{ORG}/{repo}", "--target", "main", "--title", title,
-                  "--notes", f"{title}. `{base}.tar` is the aepm package (its sha256 is {digest}); `.cdx.json` its CycloneDX 1.6 bill of "
+                  "--notes", f"{title}. `{base}.tar` is the clod package (its sha256 is {digest}); `.cdx.json` its CycloneDX 1.6 bill of "
                              "materials; `.release.dsse.json` and `.guardian.dsse.json` the Level N release and guardian attestations "
                              "(DSSE, in-toto); `.review.json` the review report the guardian attestation names; `.evidence.tar`, when present, "
                              "the documents that report names, at their store-relative paths.")
@@ -201,6 +208,16 @@ def send(method, path, data, content_type, key):
             return error.code, {"error": raw[:300]}
 
 
+def package_name(name):
+    """The package name of a library package: pkg:clod/com.clodhub/<name>."""
+    return f"pkg:clod/com.clodhub/{name}"
+
+
+def short_name(package):
+    """A package name's last segment: its catalogue slug and repository name."""
+    return package.rsplit("/", 1)[1]
+
+
 def load(path):
     return json.loads(Path(path).read_text())
 
@@ -239,7 +256,7 @@ def migration_summary(document):
 
 def verified_package(ref, store):
     """Read publication facts only from the digest-checked archive."""
-    _, bundle, _, _, _ = load_aepm()
+    _, bundle, _, _, _ = load_clod()
     archive = Path(store) / "objects" / f"{ref['digest']}.tar"
     return bundle.read_archive(ref, archive.read_bytes())
 
@@ -277,7 +294,7 @@ def images_of(manifest, payloads):
 
 def class_bodies(manifest):
     """The class publication body of each class descriptor the manifest carries."""
-    return [{"format": 2, "class": item["descriptor"]} for item in manifest["classes"]]
+    return [{"format": ENTRY_FORMAT, "class": item["descriptor"]} for item in manifest["classes"]]
 
 
 def certified(guardian_key):
@@ -304,8 +321,8 @@ def foundation_facts(manifest):
         ("platforms", "classes", "implements", "upstream", "compatibility", "maintenance", "files", "artefacts")}}
 
 
-def recipe_entry(ref, store, repo, quality=None):
-    """The format 2 recipe entry and the image uploads it needs."""
+def recipe_entry(ref, store, quality=None):
+    """The recipe entry and the image uploads it needs. Its source is the repository named as the package."""
     manifest, payloads = verified_package(ref, store)
     if manifest["kind"] != "recipe" or manifest["identity"]["name"] != ref["name"]:
         raise ValueError("recipe publication identity does not match the archive")
@@ -314,12 +331,12 @@ def recipe_entry(ref, store, repo, quality=None):
         raise ValueError("recipe publication identity does not match recipe.json")
     svg = payloads[data["page"]["diagram"]].decode()
     digest = "sha256:" + ref["digest"]
-    short = ref["name"].split("/", 1)[1]
+    short = short_name(ref["name"])
     asset = f"{short}-{ref['version']}.tar"
     images, uploads = images_of(manifest, payloads)
     return {
-        "format": 2, "recipe": data, "digest": digest,
-        "source": {"repository": f"{ORG}/{repo}", "tag": f"v{ref['version']}"},
+        "format": ENTRY_FORMAT, "recipe": data, "digest": digest,
+        "source": {"repository": f"{ORG}/{short}", "tag": f"v{ref['version']}"},
         "bundle": {"asset": asset, "digest": digest},
         "page": {"description": payloads[data["page"]["description"]].decode(),
                  "diagram": svg if len(svg) < 200000 else None},
@@ -330,10 +347,10 @@ def recipe_entry(ref, store, repo, quality=None):
 
 
 def component_entry(name, directory, ref, asset, store, quality=None, spec=None):
-    """The format 3 component entry, its version and the image uploads it needs. Its listing category is its class's. The
+    """The component entry, its version and the image uploads it needs. Its listing category is its class's. The
     description is authoring/spec.json's (`spec`, else the working tree's), or the manifest's first facility."""
     manifest, payloads = verified_package(ref, store)
-    if manifest["kind"] != "component" or manifest["identity"]["name"] != f"{ORG}/{name}":
+    if manifest["kind"] != "component" or manifest["identity"]["name"] != package_name(name):
         raise ValueError("component publication identity does not match the archive")
     digest = "sha256:" + ref["digest"]
     version = manifest["identity"]["version"]
@@ -347,7 +364,7 @@ def component_entry(name, directory, ref, asset, store, quality=None, spec=None)
     categories = {segment for item in manifest["classes"] for segment in item["descriptor"]["category"].split("/")}
     images, uploads = images_of(manifest, payloads)
     entry = {
-        "format": 3,
+        "format": COMPONENT_ENTRY_FORMAT,
         "name": manifest["identity"]["name"],
         "version": version,
         "digest": digest,
@@ -374,7 +391,7 @@ def component_entry(name, directory, ref, asset, store, quality=None, spec=None)
 
 
 def settings_of(manifest):
-    """What the catalogue's fit rule reads of each setting, and the default aepm writes when a recipe leaves it out."""
+    """What the catalogue's fit rule reads of each setting, and the default clod writes when a recipe leaves it out."""
     return [{"id": c["id"], "type": c["type"], "grammar": c["grammar"], "required": bool(c["required"]),
              "secret": bool(c["secret"]), "hasDefault": "default" in c, **({"default": c["default"]} if "default" in c else {})}
             for c in manifest["collect"]]
@@ -426,7 +443,7 @@ def interface_digests(payloads, manifest):
 
 def interface_modules(payloads, manifest):
     """Each provided document's x-clodhub-modules, with whether the component installs that entry."""
-    short = manifest["identity"]["name"].split("/")[1]
+    short = short_name(manifest["identity"]["name"])
     destinations = [a["destination"] for a in manifest["artefacts"]]
     result = {}
     for p in manifest["provides"]:
@@ -476,8 +493,7 @@ def republish_entries(args):
     on the version's GitHub release, checked against the catalogue's digest, and the description is spec.json at the
     release tag. No signing, review or upload; quality is left out, so the catalogue keeps what it recorded. Images and
     classes are sent first, as for a publication."""
-    names = sorted(p.name for p in (ROOT / "components").iterdir() if (p / "component.json").is_file())
-    names = [name for name in names if not args.only or name in args.only]
+    names = [directory.name for directory in library.components() if not args.only or directory.name in args.only]
     work = Path(tempfile.mkdtemp(prefix="republish-", dir=TEMP)).resolve()
     store = work / "store"
     (store / "objects").mkdir(parents=True)
@@ -495,7 +511,7 @@ def republish_entries(args):
                     print(name, version, "refused: the GitHub release does not hold the archive the catalogue lists", flush=True)
                     failed += 1
                     continue
-                ref = {"name": f"{ORG}/{name}", "version": version, "digest": digest.removeprefix("sha256:")}
+                ref = {"name": package_name(name), "version": version, "digest": digest.removeprefix("sha256:")}
                 (store / "objects" / f"{ref['digest']}.tar").write_bytes(data)
                 spec = spec_at_tag(directory, f"v{version}")
                 if spec is False:
@@ -549,15 +565,17 @@ def main():
     args = parser.parse_args()
     if args.entries_only:
         return republish_entries(args)
-    names = sorted(p.name for p in (ROOT / "components").iterdir() if (p / "component.json").is_file())
-    directories = {name: ROOT / f"components/{name}" for name in names}
-    directories["ourpoker"] = ROOT / "recipes/ourpoker"
-    sys.path.insert(0, str(AEPM))
-    from aepm import ledger, space
+    # Components first, then recipes, each keyed by its package's short name, which is also its repository's name.
+    directories = {}
+    for directory in library.components() + library.recipes():
+        directories[short_name(load(directory / "component.json")["identity"]["name"])] = directory
+    names = list(directories)
+    sys.path.insert(0, str(CLOD))
+    from clod import ledger, space
     packaged = sum((directory / item["path"]).stat().st_size for directory in directories.values()
                    for item in json.loads((directory / "component.json").read_text())["files"])
     # archives, statements, reports, bills of materials, evidence and the staged release assets: about three copies of
-    # the packaged bytes; each review check's own copy is admitted by aepm
+    # the packaged bytes; each review check's own copy is admitted by clod
     admission = space.reserve(TEMP, 3 * packaged, purpose="catalogue publish store")
     admission.__enter__()
     store, refs = pack_all(directories)
@@ -565,8 +583,8 @@ def main():
     # registered as kept: it holds the only local copy of each signed statement until GitHub holds them
     ledger.register(work, "work", purpose="catalogue publish store", keep=True)
     print(f"store {store}", flush=True)
-    _, _, _, trust, _ = load_aepm()
-    refusals = vulnerability_refusals({name: refs[name] for name in names + ["ourpoker"] if not args.only or name in args.only}, store)
+    _, _, _, trust, _ = load_clod()
+    refusals = vulnerability_refusals({name: refs[name] for name in names if not args.only or name in args.only}, store)
     if refusals:
         for line in refusals:
             print(line)
@@ -576,7 +594,7 @@ def main():
         trust.publish_release(store, ref, args.release_key)
     quality = {"level": "reviewed", "certified": certified(args.guardian_key), "liveTested": None}
     categories = load(ROOT / "classes/categories.json")
-    from aepm.foundations import validate_categories
+    from clod.foundations import validate_categories
     validate_categories(categories, sorted({item["descriptor"]["category"] for ref in refs.values()
                                             for item in verified_package(ref, store)[0]["classes"]}))
     if not args.dry_run:
@@ -585,19 +603,19 @@ def main():
         if status not in (200, 201):
             print(f"store kept: {store}")
             sys.exit(1)
-    results, published, classes_sent, versions = [], [], set(), {}
-    for name in names + ["ourpoker"]:
+    results, published, classes_sent, versions, recipes = [], [], set(), {}, []
+    for name in names:
         if args.only and name not in args.only:
             continue
-        recipe = name == "ourpoker"
         directory = directories[name]
-        repo = "ourpoker-recipe" if recipe else name
         ref = refs[name]
+        recipe = verified_package(ref, store)[0]["kind"] == "recipe"
         digest = "sha256:" + ref["digest"]
         files, summary = sign_and_review(store, ref, args.release_key, args.guardian_key, work)
         version = ref["version"]
         if recipe:
-            body, uploads = recipe_entry(ref, store, repo, quality)
+            recipes.append(name)
+            body, uploads = recipe_entry(ref, store, quality)
             asset = body["bundle"]["asset"]
             path = "/api/dev/recipes"
         else:
@@ -608,8 +626,8 @@ def main():
         if args.dry_run:
             print(name, version, digest[:19], summary, len(json.dumps(body)), f"{len(uploads)} image files", flush=True)
             continue
-        state = release(repo, f"v{version}", asset[:-len(".tar")], files, ref["digest"], f"{name} {version}", work)
-        published.append((repo, f"v{version}", asset[:-len(".tar")], files))
+        state = release(name, f"v{version}", asset[:-len(".tar")], files, ref["digest"], f"{name} {version}", work)
+        published.append((name, f"v{version}", asset[:-len(".tar")], files))
         failed = None
         for hexdigest, data, content_type in uploads:
             status, answer = send("PUT", f"/api/dev/images/{hexdigest}", data, content_type, args.key)
@@ -630,17 +648,18 @@ def main():
             versions[manifest["identity"]["name"]] = version
         results.append((name, version, state, status, answer.get("status") or answer.get("error") or answer if isinstance(answer, dict) else answer))
         print(name, version, state, status, answer.get("status") or answer if isinstance(answer, dict) else answer, flush=True)
-    recipe_name = f"{ORG}/ourpoker"
-    if not args.dry_run and recipe_name in versions:
-        recipe_data = json.loads(verified_package(refs["ourpoker"], store)[1]["recipe.json"])
+    for name in recipes:
+        if args.dry_run or refs[name]["name"] not in versions:
+            continue
+        recipe_data = json.loads(verified_package(refs[name], store)[1]["recipe.json"])
         for component, pinned in sorted(pinned_components(recipe_data).items()):
             if versions.get(component) != pinned:
-                print(f"{component} {pinned}: pinned by the recipe but not published in this run; quality unchanged")
+                print(f"{component} {pinned}: pinned by {name} but not published in this run; quality unchanged")
                 continue
-            status, answer = post(f"/api/dev/components/{component.split('/', 1)[1]}/{pinned}/quality",
+            status, answer = post(f"/api/dev/components/{short_name(component)}/{pinned}/quality",
                                   {**quality, "level": "integration-tested"}, args.key)
             if status != 200:
-                results.append((component.split("/", 1)[1], pinned, "quality", status, answer.get("error") or answer))
+                results.append((short_name(component), pinned, "quality", status, answer.get("error") or answer))
             print(component, pinned, "integration-tested", status, flush=True)
     bad = [r for r in results if r[3] not in (200, 201)]
     print(f"published {len(results) - len(bad)} of {len(results)}")
