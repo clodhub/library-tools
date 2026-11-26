@@ -540,6 +540,20 @@ def build_manifest(spec, files, suites):
     return manifest, missing
 
 
+def write_class_documents(spec, directory, writer):
+    """Writes each document the listed classes give this component that is missing, so a new component or a new requirement
+    scaffolds before the sync; tools/sync_required_interfaces.py keeps existing copies current."""
+    import library
+    from sync_required_interfaces import class_documents
+    for relative, data in sorted(class_documents(spec, library.classes()).items()):
+        target = directory / relative
+        if target.exists() or target.is_symlink():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        writer.log.append(f"wrote  {relative}")
+
+
 def first_scaffold(spec):
     return not any(field in spec for field in GENERATED)
 
@@ -596,6 +610,7 @@ def scaffold(directory, spec_path, do_render, force):
     spec = load_spec(spec_path, directory.resolve())
     writer = Writer(directory, force)
     notes = []
+    write_class_documents(spec, directory, writer)
 
     if spec["tools"]:
         writer.put("tools.lock.json", dump({"format": 1, "dependencies": [], "tools": spec["tools"]}))

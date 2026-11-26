@@ -53,7 +53,7 @@ VALIDATOR = TOOLS_DIR / "standards" / "validate-interface.mjs"
 
 sys.path.insert(0, str(TOOLS_DIR))
 import library  # noqa: E402
-from sync_required_interfaces import class_conflicts, required_copies  # noqa: E402
+from sync_required_interfaces import class_conflicts, implemented_copies, required_copies  # noqa: E402
 sys.path.insert(0, str(CLOD))
 from clod import locks, space  # noqa: E402
 from clod.model import DEFAULT_NAMESPACE, MANIFEST_FORMAT, PACKAGE_PREFIX, ClodError, short_name  # noqa: E402
@@ -163,22 +163,26 @@ def walk_disk(directory, report):
 def check_secrets(directory, files, report):
     for path in files:
         full = directory / path
+        name = path.casefold().split("/")[-1]
+        if name.startswith(".env") or name.endswith((".pem", ".key", ".p12", ".pfx", ".keystore", ".jks")):
+            report.error(f"secret-bearing file name: {path}")
         if full.is_symlink() or path.endswith((".png", ".jpg", ".jpeg", ".gif", ".ico", ".woff", ".woff2")):
             continue
         try:
             if full.stat().st_size > 2_000_000:
                 continue
-            content = full.read_text(encoding="utf-8", errors="ignore")
+            raw = full.read_bytes()
         except OSError:
             continue
+        # Binary files (a NUL byte early, as in fonts, sounds and archives) are not read as text.
+        if b"\0" in raw[:8192]:
+            continue
+        content = raw.decode("utf-8", errors="ignore")
         for label, pattern in STRONG_SECRETS:
             if pattern.search(content):
                 report.error(f"secret pattern ({label}) in {path}")
         if WEAK_SECRET.search(content):
             report.warn(f"possible hard-coded credential in {path}")
-        name = path.casefold().split("/")[-1]
-        if name.startswith(".env") or name.endswith((".pem", ".key", ".p12", ".pfx", ".keystore", ".jks")):
-            report.error(f"secret-bearing file name: {path}")
 
 
 def check_layout(directory, disk, manifest, report):
@@ -316,6 +320,10 @@ def check_interfaces(directory, manifest, report):
         current = directory / path
         if not current.is_file() or current.read_bytes() != expected:
             report.error(f"{path} is not a byte copy of its independent class document (run tools/sync_required_interfaces.py)")
+    for path, expected in implemented_copies(folders, directory.name, library.classes()).items():
+        current = directory / path
+        if not current.is_file() or current.read_bytes() != expected:
+            report.error(f"{path} is not a byte copy of the class it implements (run tools/sync_required_interfaces.py)")
     for problem in class_conflicts(folders, directory.name):
         report.error(problem)
     check_entry_modules(directory, manifest, documents, report, {port["path"] for port in manifest["provides"]})

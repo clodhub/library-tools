@@ -1,5 +1,5 @@
-"""A new component's first scaffold computes the fields classes/generate.py keeps: card-deck, rebuilt from its spec without them,
-comes out byte for byte as published."""
+"""A new component's first scaffold computes the fields classes/generate.py keeps and writes the documents its classes give it:
+card-deck, rebuilt from its spec without them, comes out byte for byte as published."""
 import json
 from pathlib import Path
 import shutil
@@ -18,7 +18,8 @@ SOURCE = library.ROOT / "components" / "card-deck"
 class FirstScaffoldTests(unittest.TestCase):
     def test_a_spec_without_generated_fields_gives_the_same_package(self):
         tracked = [path for path in subprocess.check_output(["git", "-C", str(SOURCE), "ls-files", "-z"], text=True).split("\0") if path]
-        generated = [path for path in tracked if path in ("component.json", "PROVENANCE.md") or path.startswith("classes/")]
+        generated = [path for path in tracked if path in ("component.json", "PROVENANCE.md", "interfaces/card-deck.json",
+                                                          "interfaces/required-random-source.json") or path.startswith("classes/")]
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "card-deck"
             for relative in set(tracked) - set(generated):

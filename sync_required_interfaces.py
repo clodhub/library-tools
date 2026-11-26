@@ -1,10 +1,11 @@
 #!/usr/bin/env python3.12
-"""Copy independent class interface documents to the components that require them.
+"""Copy independent class interface documents to the components that require or implement them.
 
 Usage: python3.12 -B tools/sync_required_interfaces.py [--check]
 For every component in tools/library.json, each required interface a listed class defines (or, failing that, a class
-a listed component packages) gets interfaces/required-<id>.json, a byte copy of its class document. Class identities and
-inventory bytes must agree.
+a listed component packages) gets interfaces/required-<id>.json, a byte copy of its class document. From the listed
+class it implements, each provided document is copied to its port's path and each *.schema.json into interfaces/.
+Class identities and inventory bytes must agree.
 With --check nothing is written and differences give exit status 1.
 """
 
@@ -86,6 +87,45 @@ def listed_class_documents(class_folders):
     return result
 
 
+def class_documents(component, class_folders):
+    """Relative path -> bytes of the documents one component takes from the listed classes, given its provides, requires
+    and implements as in its manifest or spec: each required interface's class document at interfaces/required-<id>.json,
+    and from the class it implements each provided document at its port's path and each *.schema.json in interfaces/."""
+    listed = listed_class_documents(class_folders)
+    named = {json.loads((Path(directory) / "class.json").read_text(encoding="utf-8"))["name"]: Path(directory)
+             for directory in class_folders}
+    own = {(port["type"], port["version"]): port for port in component.get("provides", [])}
+    copies = {}
+    for port in component.get("requires", []):
+        key = (port["type"], port["version"])
+        if key not in own and key in listed:
+            copies[f"interfaces/required-{port['id']}.json"] = listed[key][1].read_bytes()
+    for item in component.get("implements", []):
+        directory = named.get(item["name"] if isinstance(item, dict) else item)
+        if directory is None:
+            continue
+        descriptor = json.loads((directory / "class.json").read_text(encoding="utf-8"))
+        for port in descriptor["provides"]:
+            mine = own.get((port["type"], port["version"]))
+            if mine is not None:
+                copies[mine.get("path") or f"interfaces/{mine['id']}.json"] = (directory / Path(port["path"]).name).read_bytes()
+        for schema in sorted(directory.glob("*.schema.json")):
+            copies["interfaces/" + schema.name] = schema.read_bytes()
+    return copies
+
+
+def implemented_copies(folders, only=None, class_folders=()):
+    """Relative path -> bytes of the provided documents and schemas each component among the given folders takes from the
+    listed class it implements (for one component when `only` is given)."""
+    copies = {}
+    for name, manifest in manifests(folders).items():
+        if only is not None and name != only:
+            continue
+        for path, data in class_documents({**manifest, "requires": []}, class_folders).items():
+            copies[path if only is not None else f"{name}/{path}"] = data
+    return copies
+
+
 def required_copies(folders, only=None, class_folders=()):
     """Relative path -> bytes that each requiring component among the given folders must hold (for one component when
     `only` is given). A listed class's own folder is the source of the types it provides; a type no listed class provides
@@ -124,13 +164,14 @@ def main(argv=None):
     try:
         folders = library.components()
         copies = required_copies(folders, class_folders=library.classes())
+        implemented = implemented_copies(folders, class_folders=library.classes())
         found = manifests(folders)
     except (SyncError, library.LibraryError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     located = {directory.name: directory for directory in folders}
     differences, manifest_paths = [], []
-    for relative, data in sorted(copies.items()):
+    for relative, data in sorted({**copies, **implemented}.items()):
         name, path = relative.split("/", 1)
         target = located[name] / path
         if target.is_symlink():
@@ -155,7 +196,8 @@ def main(argv=None):
     conflicts = class_conflicts(folders)
     for item in conflicts:
         print("classes: " + item)
-    print(f"{len(copies)} required documents; {len(differences)} " + ("differ" if arguments.check else "written")
+    print(f"{len(copies)} required documents; {len(implemented)} provided documents and schemas; {len(differences)} "
+          + ("differ" if arguments.check else "written")
           + f"; {len(manifest_paths)} manifest paths to fix; {len(conflicts)} class conflicts")
     return 1 if (arguments.check and differences) or manifest_paths or conflicts else 0
 
