@@ -1,0 +1,93 @@
+{
+  "format": 2,
+  "kind": "recipe-build",
+  "recipe": {
+    "name": "pkg:clod/com.clodhub/webshop-recipe",
+    "version": "0.2.0",
+    "digest": "sha256:dd0532f9837ae166b16b37c73f1c5371a3e27f561fdfae78c1559d7694636c3e"
+  },
+  "clod": {
+    "repository": "clodhub/clod",
+    "commit": "a2deca8"
+  },
+  "date": "2026-11-27",
+  "agent": {
+    "harness": "OpenCode 2.4.1 (opencode run, non-interactive, permissions approved automatically)",
+    "model": "anthropic/claude-opus-5-5",
+    "session": "a new session in an empty folder outside the recipe author's workspace, given only the prompt"
+  },
+  "prompt": "Build a website for my massage studio, Example Studio, from the Web Shop recipe: https://clodhub.com/recipes/webshop-recipe.txt. It runs on my own computer for now and nothing is live yet; offer every feature.",
+  "conditions": "The session started in an empty temporary folder and read nothing from the workspace. It ran non-interactively, so its one round of seven questions was cancelled; it took the defaults, and with no map position it answered homeVisits no, as the instructions direct. clod verify --trusted --allow-network: 48 required-local passed; 1 platform passed; 1 platform blocked (android, tool unavailable); deployed not applicable. The agent ran the e2e tests (182 passed, 7 skipped, 0 failed), stopped the server and ran the update-readiness check, which passed. It skipped the trial's booking by hand and did not read the outbox; afterwards the tester, not the agent, restarted the shop, ran the e2e tests again with the same result and read the outbox with the admin PIN (113 kept emails, booking confirmations among them; 401 without the PIN), confirmed the shop does not answer on the network address, and stopped it.",
+  "answers": {
+    "accentColour": "",
+    "address": "",
+    "booking": true,
+    "businessType": "HealthAndBeautyBusiness",
+    "calendar": "shop",
+    "contactEmail": "",
+    "currency": "EUR",
+    "database": "memory",
+    "defaultLanguage": "en",
+    "depositPercent": 50,
+    "freeCancellationHours": 24,
+    "giftCards": true,
+    "homeVisits": false,
+    "hosting": "own-hardware",
+    "languages": [
+      "en"
+    ],
+    "leadDays": 1,
+    "live": false,
+    "look": "noir",
+    "memberPricing": true,
+    "phone": "",
+    "promotions": true,
+    "scale": "small",
+    "shopName": "Example Studio",
+    "siteAddress": "http://localhost:3000",
+    "timeZone": "Europe/London"
+  },
+  "measured": {
+    "method": "OpenCode's JSON event stream, from the prompt to the agent's final report; nothing waited for a person",
+    "elapsedMinutes": 7.8,
+    "waitingForPersonMinutes": 0,
+    "activeMinutes": 7.8,
+    "replies": 21,
+    "toolCalls": 22,
+    "tokens": {
+      "input": 44,
+      "output": 6403,
+      "reasoning": 1615,
+      "cacheRead": 1176866,
+      "cacheWrite": 91106,
+      "total": 1276034
+    },
+    "costUsd": 0.85
+  },
+  "results": [
+    {
+      "target": "server",
+      "built": true,
+      "tested": "clod verify: 48 of 48 required-local, again after removing node_modules and .next; e2e 182 passed, 7 skipped, 0 failed",
+      "ran": "next start --hostname localhost on this Mac; health check answers; stopped at the end"
+    },
+    {
+      "target": "web",
+      "built": true,
+      "tested": "next build; the pages answer; booking, gift cards, promotions, member prices and staff and admin access driven end to end through the simulated checkout",
+      "ran": "next start --hostname localhost on this Mac, emails kept in the admin outbox"
+    }
+  ],
+  "update": "none: no deploy. The agent ran the update-readiness check: with node_modules and .next removed no link was left and clod verify passed again; it then ran npm ci and npm run build.",
+  "problems": [
+    "With no person to answer the position question, the agent answered homeVisits no, so a prompt asking for every feature got a shop without home visits; the recipe directs this, and the run could not test the build refusing home visits without a position.",
+    "The agent skipped step 2 of Check the trial, the booking by hand read in /admin/outbox; the e2e tests covered the flows, and the tester read the outbox afterwards.",
+    "The agent deleted data/shop.ndjson after the e2e tests, which Check the trial does not mention; its rating asks for that step to be written in."
+  ],
+  "rating": {
+    "score": 8,
+    "of": 10,
+    "by": "the building agent",
+    "mostHelpful": "The trial-check section should tell the agent to stop the server and delete data/shop.ndjson after the end-to-end tests, because those tests leave their bookings and promotions in the owner's shop."
+  }
+}
