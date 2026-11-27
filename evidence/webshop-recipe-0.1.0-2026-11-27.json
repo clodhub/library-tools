@@ -1,0 +1,98 @@
+{
+  "format": 2,
+  "kind": "recipe-build",
+  "recipe": {
+    "name": "pkg:clod/com.clodhub/webshop-recipe",
+    "version": "0.1.0",
+    "digest": "sha256:424ac730c1d0e548918610eab3e87f85f3b2f8cce649c0ef4301dfe835d6c1bf"
+  },
+  "clod": {
+    "repository": "clodhub/clod",
+    "commit": "a2deca8"
+  },
+  "date": "2026-11-27",
+  "agent": {
+    "harness": "OpenCode 2.4.1 (opencode run, non-interactive, permissions approved automatically)",
+    "model": "anthropic/claude-opus-5-5",
+    "session": "a new session in an empty folder outside the recipe author's workspace, given only the prompt"
+  },
+  "prompt": "Build a website for my massage studio, Example Studio, from the Web Shop recipe: https://clodhub.com/recipes/webshop-recipe.txt. It runs on my own computer for now and nothing is live yet; offer every feature.",
+  "conditions": "The session started in an empty temporary folder and read nothing from the workspace. It ran non-interactively, so its one round of questions was cancelled and the six open questions took the recipe's defaults; the prompt settled the shop name, own-hardware hosting, not live and every feature. clod verify --trusted --allow-network: 50 required-local passed; 1 platform passed; 1 platform blocked (translations android, tool unavailable); deployed not applicable. The e2e tests, run together by the agent without EMAIL_BUSINESS: 45 passed, 3 skipped. Afterwards the tester, not the agent, ran the e2e files together and one at a time with EMAIL_FROM and EMAIL_BUSINESS set (46 passed, 2 skipped, 0 failed either way), read the admin outbox with the admin PIN (booking and gift card emails present, 401 without it), and removed node_modules and .next: no links were left and clod verify passed again with the same counts.",
+  "answers": {
+    "accentColour": "",
+    "address": "",
+    "booking": true,
+    "businessType": "HealthAndBeautyBusiness",
+    "calendar": "shop",
+    "contactEmail": "",
+    "currency": "EUR",
+    "database": "memory",
+    "defaultLanguage": "en",
+    "depositPercent": 50,
+    "freeCancellationHours": 24,
+    "giftCards": true,
+    "homeVisitFee": 5000,
+    "homeVisitRadiusKm": 25,
+    "homeVisits": true,
+    "hosting": "own-hardware",
+    "languages": [
+      "en"
+    ],
+    "leadDays": 1,
+    "live": false,
+    "look": "noir",
+    "memberPricing": true,
+    "phone": "",
+    "promotions": true,
+    "scale": "small",
+    "shopName": "Example Studio",
+    "siteAddress": "http://localhost:3000",
+    "timeZone": "Europe/London"
+  },
+  "measured": {
+    "method": "OpenCode's JSON event stream, from the prompt to the agent's final report; nothing waited for a person",
+    "elapsedMinutes": 5.9,
+    "waitingForPersonMinutes": 0,
+    "activeMinutes": 5.9,
+    "replies": 19,
+    "toolCalls": 20,
+    "tokens": {
+      "input": 40,
+      "output": 5719,
+      "reasoning": 2489,
+      "cacheRead": 977175,
+      "cacheWrite": 90195,
+      "total": 1075618
+    },
+    "costUsd": 0.81
+  },
+  "results": [
+    {
+      "target": "server",
+      "built": true,
+      "tested": "clod verify: 50 of 50 required-local; e2e 45 passed, 3 skipped, 0 failed",
+      "ran": "next start on this Mac; health check answers"
+    },
+    {
+      "target": "web",
+      "built": true,
+      "tested": "next build; the pages answer; booking, gift cards, promotions and member prices driven end to end by the e2e tests, through the simulated checkout",
+      "ran": "next start on this Mac, emails kept in the admin outbox"
+    }
+  ],
+  "update": "none: no deploy. Update readiness was checked by the tester: with node_modules and .next removed no link is left and clod verify passes again.",
+  "problems": [
+    "The agent did not set EMAIL_FROM or EMAIL_BUSINESS: the instructions' trial command for the e2e tests does not name EMAIL_BUSINESS, so the owner-copy test was skipped.",
+    "INSTRUCTIONS.md asks for an admin PIN of at least 12 characters in one place and at least 6 in the table; the agent made a 16-character admin PIN and a 12-character staff PIN.",
+    "The agent kept the example's contact details, address and Europe/Madrid time zone in content/shop.json, while the design records the default Europe/London and empty contact answers; with no person to ask, nothing told it what to write.",
+    "The agent drove the flows only through the e2e tests and did not open the admin outbox itself; it then cleared the data, so its own run kept no outbox evidence.",
+    "The agent stopped the steps after starting the site: it did not run the update-readiness check (remove node_modules and .next, find no links, verify again).",
+    "INSTRUCTIONS.md has a line of 485 characters, over the 400 the library keeps for OurPoker."
+  ],
+  "rating": {
+    "score": 8,
+    "of": 10,
+    "by": "the building agent",
+    "mostHelpful": "Ask for the studio's address and map position whenever home visits are on, because without a map position home visits quietly switch off."
+  }
+}

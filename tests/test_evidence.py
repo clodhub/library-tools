@@ -2,10 +2,12 @@
 import copy
 import json
 from pathlib import Path
+import subprocess
 import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import library  # noqa: E402
 import publish_evidence  # noqa: E402
 
 SAMPLE = {
@@ -25,6 +27,18 @@ SAMPLE = {
 }
 
 
+def recipe_platforms(name, version):
+    """The platforms of the named recipe at that version, from its folder's history in the workspace."""
+    for folder in library.recipes():
+        if json.loads((folder / "component.json").read_text())["identity"]["name"] != name:
+            continue
+        for commit in subprocess.check_output(["git", "-C", str(folder), "log", "--format=%H", "--", "component.json"], text=True).split():
+            manifest = json.loads(subprocess.check_output(["git", "-C", str(folder), "show", f"{commit}:component.json"]))
+            if manifest["identity"]["version"] == version:
+                return set(manifest["platforms"])
+    raise AssertionError(f"{name} {version} is not in the history of a listed recipe")
+
+
 class Evidence(unittest.TestCase):
     def reports(self):
         paths = sorted(publish_evidence.EVIDENCE.glob("*.json"))
@@ -32,7 +46,10 @@ class Evidence(unittest.TestCase):
 
     def test_each_report_has_the_catalogue_shape(self):
         for path, report in self.reports():
-            self.assertEqual(publish_evidence.check(report, path), "ourpoker-recipe", path.name)
+            short = publish_evidence.check(report, path)
+            self.assertEqual(short, report["recipe"]["name"].rsplit("/", 1)[1], path.name)
+            if path.name != "sample.json":
+                self.assertEqual(path.name, f"{short}-{report['recipe']['version']}-{report['date']}.json")
 
     def test_figures_add_up(self):
         for path, report in self.reports():
@@ -42,9 +59,13 @@ class Evidence(unittest.TestCase):
             self.assertLessEqual(measured["activeMinutes"], measured["elapsedMinutes"], path.name)
             self.assertAlmostEqual(measured["elapsedMinutes"] - measured["waitingForPersonMinutes"], measured["activeMinutes"], delta=0.5, msg=path.name)
 
-    def test_every_answered_target_has_a_result(self):
+    def test_every_chosen_target_has_a_result(self):
         for path, report in self.reports():
-            targets = set(report["answers"]["targets"]) | {"server"}
+            if "targets" in report["answers"]:
+                targets = set(report["answers"]["targets"]) | {"server"}
+            else:
+                # A recipe without a targets question builds every platform it offers.
+                targets = recipe_platforms(report["recipe"]["name"], report["recipe"]["version"])
             self.assertEqual({result["target"] for result in report["results"]}, targets, path.name)
 
     def test_a_wrong_report_is_refused(self):
